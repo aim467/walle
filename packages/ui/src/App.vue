@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import Overview from './views/Overview.vue';
+import Assets from './views/Assets.vue';
+import Sessions from './views/Sessions.vue';
 
 const route = ref(location.hash.slice(1) || '/');
 window.addEventListener('hashchange', () => { route.value = location.hash.slice(1) || '/'; });
@@ -23,9 +26,9 @@ onMounted(async () => {
     </nav>
   </header>
   <main>
-    <div v-if="route === '/'">总览（建设中） sources={{ sources.length }}</div>
-    <div v-else-if="route.startsWith('/assets')">资产库（建设中）</div>
-    <div v-else-if="route.startsWith('/sessions')">会话（建设中）</div>
+    <Overview v-if="route === '/'" />
+    <Assets v-else-if="route.startsWith('/assets')" />
+    <Sessions v-else-if="route.startsWith('/sessions')" />
     <div v-else>404</div>
   </main>
 </template>

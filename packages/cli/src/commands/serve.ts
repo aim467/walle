@@ -75,6 +75,49 @@ export async function cmdServe(rest: string[]): Promise<void> {
         serveUiFile(res, url.pathname);
         return;
       }
+      if (url.pathname === '/api/assets') {
+        // 资产库浏览：kind/tool 过滤，全量（UI 端截断）
+        const all = store.listAssets({
+          kind: url.searchParams.get('kind') || undefined,
+          tool: url.searchParams.get('tool') || undefined,
+          limit: 100_000,
+        });
+        json(res, all);
+        return;
+      }
+      if (url.pathname === '/api/snapshots') {
+        const assetId = Number(url.searchParams.get('asset'));
+        json(res, { snapshots: store.listSnapshots(assetId) });
+        return;
+      }
+      if (url.pathname === '/api/overview') {
+        // 总览：源统计 + 最近变更流（含跨工具 mtime 对比——"谁刚被改过"）
+        const sources = store.db.prepare('SELECT id, tool, display_name, root_path, last_scanned_at FROM source ORDER BY tool').all() as unknown[];
+        const perSource = (sources as Record<string, unknown>[]).map((s) => {
+          const sid = Number(s.id);
+          const counts = store.db
+            .prepare(`SELECT kind, COUNT(*) c FROM asset WHERE source_id = ? AND status = 'active' GROUP BY kind`)
+            .all(sid) as unknown[];
+          const byKind: Record<string, number> = {};
+          let total = 0;
+          for (const r of counts as Record<string, unknown>[]) { byKind[String(r.kind)] = Number(r.c); total += Number(r.c); }
+          return {
+            tool: String(s.tool),
+            displayName: String(s.display_name ?? s.tool),
+            rootPath: String(s.root_path),
+            lastScannedAt: s.last_scanned_at ? String(s.last_scanned_at) : null,
+            total,
+            byKind,
+          };
+        });
+        const recent = store.listAssets({ limit: 1_000_000 })
+          .filter((a) => a.status === 'active')
+          .sort((a, b) => (b.mtime ?? '').localeCompare(a.mtime ?? ''))
+          .slice(0, 25)
+          .map((a) => ({ id: a.id, tool: a.tool, kind: a.kind, name: a.name, path: a.path, mtime: a.mtime, size: a.size, sensitive: !!a.sensitive }));
+        json(res, { sources: perSource, recent, allowWrite: !!readWalleConfig().allowWrite });
+        return;
+      }
       if (url.pathname === '/api/stats') {
         const sources = store.db.prepare('SELECT tool, display_name FROM source ORDER BY tool').all() as unknown[];
         json(res, { sources: sources.map((s) => ({ tool: String((s as Record<string, unknown>).tool), displayName: String((s as Record<string, unknown>).display_name ?? '') })) });
