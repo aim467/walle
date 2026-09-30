@@ -11,13 +11,16 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @walle/core && npm run build -w @walle/adapters && npm run build -w @walle/cli",
+    "build": "npm run build -w @walle/core && npm run build -w @walle/adapters && npm run build -w @walle/cli && npm run build -w @walle/ui",
     "test": "npm run build && node scripts/gen-fixtures.mjs && node --test test/smoke.test.mjs",
     "walle": "node packages/cli/dist/main.js",
     "verify": "node scripts/verify/verify-codex.mjs && node scripts/verify/verify-zcode.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "typescript": "^5.7.0"
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.7.0",
+    "vite": "^5.4.21",
+    "vue": "^3.5.43"
   }
 }

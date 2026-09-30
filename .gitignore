@@ -1,5 +1,6 @@
 node_modules/
 dist/
+packages/ui/dist/
 *.tsbuildinfo
 .DS_Store
 # 测试固件中动态生成的 SQLite 库（由 scripts/gen-fixtures.mjs 重建）

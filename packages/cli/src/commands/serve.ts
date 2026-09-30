@@ -17,11 +17,14 @@ interface ApiDoc {
   text: string;
 }
 
-/** UI 静态文件目录：WALLE_UI_DIR > 包根 ui/（dist/commands/serve.js 上三级） */
+/** UI 静态文件目录：WALLE_UI_DIR > Vue 构建产物 ui/dist > 旧版单文件 ui/ */
 function resolveUiDir(): string | null {
   if (process.env.WALLE_UI_DIR && fs.existsSync(process.env.WALLE_UI_DIR)) return process.env.WALLE_UI_DIR;
   const pkgUi = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'ui');
-  return fs.existsSync(pkgUi) ? pkgUi : null;
+  const dist = path.join(pkgUi, 'dist');
+  if (fs.existsSync(path.join(dist, 'index.html'))) return dist;
+  if (fs.existsSync(pkgUi)) return pkgUi;
+  return null;
 }
 
 const UI_DIR = resolveUiDir();
