@@ -66,7 +66,6 @@ export async function runScan(
       for await (const raw of adapter.discover(root)) {
         result.total++;
         result.byKind[raw.kind] = (result.byKind[raw.kind] ?? 0) + 1;
-        const abs = path.resolve(root, raw.path);
         const prev = existing.get(raw.path);
 
         // 快路径：size+mtime 未变，直接视为 unchanged（不读内容、零写入）
@@ -78,6 +77,7 @@ export async function runScan(
 
         try {
           // 敏感兜底：内容头部扫描（适配器的文件名级判定先生效）
+          const abs = adapter.resolve ? adapter.resolve(root, raw.path) : path.resolve(root, raw.path);
           let sensitive = raw.sensitive;
           if (!sensitive) {
             try {

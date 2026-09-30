@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { Adapter, AssetKind, RawAsset } from '@walle/core';
+import type { Adapter, AssetKind, ParseMode, ParsedResult, RawAsset } from '@walle/core';
 import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
+import { parseCodexRollout, parseCodexSessionIndex, parseCodexState } from './parse.js';
 
 /**
  * Codex CLI 适配器。格式细节见 docs/data-sources/codex.md（全部实测）。
@@ -45,6 +46,13 @@ function fmt(rel: string): 'jsonl' | 'json' | 'toml' | 'text' {
 export const codexAdapter: Adapter = {
   id: 'codex',
   displayName: 'Codex CLI',
+  parse(contentPath, raw, mode: ParseMode): ParsedResult | null {
+    if (raw.kind === 'session') return parseCodexRollout(contentPath, mode);
+    if (raw.path === 'session_index.jsonl') return parseCodexSessionIndex(contentPath);
+    if (raw.kind === 'other' && /state_\d+\.sqlite$/.test(raw.path)) return parseCodexState(contentPath);
+    return null;
+  },
+
   capabilities: { read: true, write: false },
 
   detect(rootOverride?: string): string | null {

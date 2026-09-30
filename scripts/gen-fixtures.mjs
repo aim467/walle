@@ -69,8 +69,10 @@ INSERT INTO threads (title, cwd, model, tokens_used, created_at, updated_at) VAL
   const db = openDb('zcode/cli/db/db.sqlite');
   db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, path TEXT, version TEXT, time_created TEXT);
 CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
+CREATE TABLE part (id INTEGER PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
 INSERT INTO session (id, title, path, version, time_created) VALUES ('sess_fixture1', 'fixture 会话', 'D:\\CodingProject\\walle', '0.16.9', '2026-09-30T10:00:00Z');
-INSERT INTO message (session_id, data, sequence, time_created) VALUES ('sess_fixture1', '{"role":"user","content":"fixture prompt"}', 0, '2026-09-30T10:00:01Z');`);
+INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (1, 'sess_fixture1', '{"role":"user"}', 0, '2026-09-30T10:00:01Z');
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (1, '1', 'sess_fixture1', '{"type":"text","text":"fixture prompt：帮我检查语义检索的阈值配置"}', 0, '2026-09-30T10:00:01Z');`);
   db.close();
 }
 write(
@@ -89,5 +91,32 @@ write('zcode/cli/plugins/known_marketplaces.json', JSON.stringify([{ name: 'fixt
 write('zcode/v2/credentials.json', JSON.stringify({ 'oauth:bigmodel:access_token': 'eyJfixtureTokenValue0000000000000000', zcodejwttoken: 'zz-fixture-jwt-0000000000000000' }, null, 2));
 write('zcode/v2/bot-config.v3.json', JSON.stringify({ fixture: true }));
 write('zcode/v2/setting.json', JSON.stringify({ theme: 'fixture' }));
+
+// ---------- opencode（配置根 + 数据根，数据根由测试的 roots 覆盖注入） ----------
+write('opencode/opencode.jsonc', JSON.stringify({ $schema: 'https://opencode.ai/config.json' }, null, 2));
+{
+  // opencode 家族 schema：part/message 无 sequence 列（与 ZCode 的差异点）
+  const db = openDb('opencode-data/opencode.db');
+  db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created TEXT);
+CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_created TEXT);
+CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT, time_created TEXT);
+INSERT INTO session (id, title, directory, time_created) VALUES ('oc_sess1', '语义检索工具可用性测试', 'D:/fixture/proj', '2026-09-05T12:23:50.509Z');
+INSERT INTO message (id, session_id, data, time_created) VALUES ('oc_msg1', 'oc_sess1', '{"role":"user"}', '2026-09-05T12:24:00.000Z');
+INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p1', 'oc_msg1', 'oc_sess1', '{"type":"text","text":"帮我测试 mcp server 的连接是否正常"}', '2026-09-05T12:24:00.000Z');
+INSERT INTO message (id, session_id, data, time_created) VALUES ('oc_msg2', 'oc_sess1', '{"role":"assistant"}', '2026-09-05T12:24:10.000Z');
+INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p2', 'oc_msg2', 'oc_sess1', '{"type":"text","text":"mcp server 连接测试通过，语义检索工具可用"}', '2026-09-05T12:24:10.000Z');`);
+  db.close();
+}
+write('opencode-data/auth.json', JSON.stringify({ 'opencode-go': { access_token: 'oc-fixture-token-0000000000000000' } }, null, 2));
+
+// ---------- cursor（配置根 + 应用根） ----------
+write('cursor/mcp.json', JSON.stringify({ mcpServers: { git: { command: 'uvx', args: ['mcp-server-git'] } } }, null, 2));
+write('cursor/skills-cursor/automate/SKILL.md', '---\nname: automate\ndescription: fixture skill for mcp server automation\n---\n\nCheck the mcp server gate before running.\n');
+{
+  const db = openDb('cursor-appdata/User/globalStorage/state.vscdb');
+  db.exec('CREATE TABLE ItemTable (key TEXT, value TEXT); CREATE TABLE cursorDiskKV (key TEXT, value TEXT);');
+  db.close();
+}
+write('cursor-appdata/User/settings.json', JSON.stringify({ 'editor.fontSize': 14 }));
 
 console.log(`fixtures 已生成: ${fixtures}`);

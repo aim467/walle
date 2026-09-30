@@ -4,3 +4,5 @@ export * from './cas.js';
 export * from './sensitive.js';
 export * from './store.js';
 export * from './scanner.js';
+export * from './tokenize.js';
+export * from './indexer.js';

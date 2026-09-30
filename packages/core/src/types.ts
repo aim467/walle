@@ -35,7 +35,84 @@ export interface Adapter {
   /** 探测数据目录；rootOverride 用于测试/自定义路径，不存在返回 null */
   detect(rootOverride?: string): string | null;
   discover(root: string): AsyncIterable<RawAsset>;
+  /**
+   * 相对路径 → 绝对路径。默认 path.resolve(root, rel)。
+   * 多根工具（如 opencode 配置目录、Cursor 的 AppData）用 "config:" / "appdata:" 前缀锚定外部目录。
+   */
+  resolve?(root: string, rel: string): string;
+  /** 结构化解析（会话等）。P2 起由索引器与阅读器调用 */
+  parse?(contentPath: string, raw: { kind: AssetKind; path: string; tool: string; name?: string }, mode: ParseMode): ParsedResult | null;
   capabilities: { read: true; write: false };
+}
+
+/** 解析模式：index 给全文索引（过滤噪声、截断）；read 给阅读器（完整、含 developer/环境注入） */
+export type ParseMode = 'index' | 'read';
+
+export type DocType = 'session_message' | 'session_title' | 'file';
+
+export interface ParsedDoc {
+  /** 多会话容器（如 ZCode/opencode 的 db.sqlite）内的会话 id；单会话文件可省略 */
+  subId?: string;
+  docType?: DocType;
+  seq: number;
+  role?: string | null;
+  ts?: string | null;
+  text: string;
+}
+
+export interface SessionMetaRow {
+  subId: string;
+  startedAt?: string | null;
+  title?: string | null;
+  model?: string | null;
+  projectPath?: string | null;
+  messageCount?: number | null;
+  /**
+   * 标题来源记录（如 Codex session_index/state_5）：本身无消息文档。
+   * 索引器会把 meta 合并到同工具下 path 含 subId 的会话资产上，而非挂在当前资产。
+   */
+  noDocs?: boolean;
+}
+
+export interface ParsedResult {
+  docs: ParsedDoc[];
+  sessions: SessionMetaRow[];
+}
+
+export interface SearchHit {
+  docId: number;
+  assetId: number;
+  subId: string;
+  docType: string;
+  role: string | null;
+  kind: string;
+  tool: string;
+  path: string;
+  assetName: string | null;
+  sessionTitle: string | null;
+  snippet: string;
+}
+
+export interface SessionListRow {
+  assetId: number;
+  subId: string;
+  tool: string;
+  assetPath: string;
+  title: string | null;
+  model: string | null;
+  startedAt: string | null;
+  projectPath: string | null;
+  messageCount: number | null;
+}
+
+export interface IndexStats {
+  assetsIndexed: number;
+  docsAdded: number;
+  sessions: number;
+  skippedSensitive: number;
+  skippedNoContent: number;
+  errors: string[];
+  durationMs: number;
 }
 
 /** DB 中的资产记录 */

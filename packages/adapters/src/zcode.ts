@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { Adapter, AssetKind, RawAsset } from '@walle/core';
+import type { Adapter, AssetKind, ParseMode, ParsedResult, RawAsset } from '@walle/core';
 import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
+import { parseFamilyDb } from './parse.js';
 
 /**
  * ZCode 适配器。格式细节见 docs/data-sources/zcode.md（全部实测）。
@@ -32,6 +33,11 @@ function fmt(rel: string): 'jsonl' | 'json' | 'sqlite' | 'markdown' {
 export const zcodeAdapter: Adapter = {
   id: 'zcode',
   displayName: 'ZCode',
+  parse(contentPath, raw, mode: ParseMode): ParsedResult | null {
+    if (raw.kind === 'session' && raw.path.endsWith('.sqlite')) return parseFamilyDb(contentPath, mode);
+    return null;
+  },
+
   capabilities: { read: true, write: false },
 
   detect(rootOverride?: string): string | null {

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runScan, WalleStore, ContentStore, ensureWalleHome, maskSecrets, looksSensitive } from '../packages/core/dist/index.js';
+import { runScan, buildIndex, WalleStore, ContentStore, ensureWalleHome, maskSecrets, looksSensitive, buildFtsQuery } from '../packages/core/dist/index.js';
 import { adapters } from '../packages/adapters/dist/index.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,10 +15,18 @@ const fixtures = path.join(root, 'fixtures');
 
 // 独立的 WALLE_HOME，绝不触碰真实 ~/.walle
 process.env.WALLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-test-'));
+// cursor/opencode 的数据根重定向到固件，绝不读取真机数据
+process.env.WALLE_CURSOR_APPDATA = path.join(fixtures, 'cursor-appdata');
+process.env.WALLE_OPENCODE_DATA = path.join(fixtures, 'opencode-data');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));
-const roots = { codex: path.join(fixtures, 'codex'), zcode: path.join(fixtures, 'zcode') };
+const roots = {
+  codex: path.join(fixtures, 'codex'),
+  zcode: path.join(fixtures, 'zcode'),
+  cursor: path.join(fixtures, 'cursor'),
+  opencode: path.join(fixtures, 'opencode'),
+};
 
 test('敏感工具函数', () => {
   assert.equal(looksSensitive('experimental_bearer_token = "sk-abc12345678901234567890"'), true);
@@ -74,6 +82,71 @@ test('删除文件后扫描：标记失踪', async () => {
   const missing = store.listAssets({ includeMissing: true, limit: 500 }).filter((a) => a.status === 'missing');
   assert.equal(missing.length, 1);
   assert.equal(missing[0].path, 'cap_sid');
+});
+
+// ---------- P2：索引 / 搜索 / 会话 ----------
+
+test('四源扫描：cursor 与 opencode 均产出资产', async () => {
+  await runScan(adapters, store, cas, { roots });
+  const all = store.listAssets({ limit: 500 });
+  assert.ok(all.some((a) => a.tool === 'cursor' && a.path === 'mcp.json'), 'cursor mcp.json 应入库');
+  assert.ok(all.some((a) => a.tool === 'cursor' && a.kind === 'skill'), 'cursor skill 应入库');
+  assert.ok(all.some((a) => a.tool === 'opencode' && a.path === 'data:auth.json' && a.sensitive === 1), 'opencode auth.json 应标记 secret');
+  assert.ok(all.some((a) => a.tool === 'opencode' && a.kind === 'session'), 'opencode.db 应作为会话资产入库');
+});
+
+test('构建索引 + 中文/英文搜索', () => {
+  const stats = buildIndex(adapters, store, cas);
+  assert.ok(stats.assetsIndexed > 0, '应有资产被索引');
+  assert.ok(stats.docsAdded > 0, '应有文档入索引');
+
+  // 中文 bigram：会话正文与标题可命中
+  const zh = store.search('语义检索', { limit: 20 });
+  assert.ok(zh.length >= 2, `「语义检索」应命中多文档，实际 ${zh.length}`);
+  assert.ok(zh.some((h) => h.docType === 'session_title'), '应命中会话标题');
+
+  // 英文多词 AND
+  const en = store.search('mcp server', { limit: 20 });
+  assert.ok(en.length >= 1, '「mcp server」应有命中');
+
+  // 分词器：空/无有效 token 返回空串（防注入与噪声）
+  assert.equal(buildFtsQuery('a"b'), '');
+  assert.equal(buildFtsQuery('语义'), '"语义"');
+});
+
+test('secret 资产永不入全文索引', () => {
+  // auth.json / credentials.json 的 token 值在固件中独一无二，若入索引即可搜到
+  for (const secret of ['sk-fixture000000000000000000000000000000', 'eyJfixtureTokenValue0000000000000000']) {
+    const frag = secret.slice(8, 24); // 取中段做查询（bigram 命中即视为入索引）
+    const hits = store.search(frag, { limit: 5 });
+    assert.equal(hits.length, 0, `secret 片段 ${frag} 不应被搜到`);
+  }
+});
+
+test('索引增量幂等：二次构建零资产', () => {
+  const stats = buildIndex(adapters, store, cas);
+  assert.equal(stats.assetsIndexed, 0, '无变化时不应重建索引');
+  assert.equal(stats.docsAdded, 0);
+});
+
+test('会话清单：标题与来源富化', () => {
+  const rows = store.listSessions({ limit: 100 });
+  const zc = rows.find((s) => s.tool === 'zcode');
+  assert.ok(zc && zc.title, 'zcode 会话应有标题');
+  const oc = rows.find((s) => s.tool === 'opencode');
+  assert.ok(oc && oc.title === '语义检索工具可用性测试', 'opencode 会话标题应来自 db');
+  assert.ok(rows.some((s) => s.tool === 'codex' && s.title), 'codex 会话应有标题（fixture 首条用户消息）');
+});
+
+test('read 模式解析：会话消息完整返回', () => {
+  const oc = adapters.find((a) => a.id === 'opencode');
+  const dbAsset = store.listAssets({ tool: 'opencode', kind: 'session', limit: 10 })[0];
+  assert.ok(dbAsset?.contentHash, 'opencode.db 应有内容哈希');
+  const result = oc.parse(cas.pathFor(dbAsset.contentHash), { kind: 'session', path: dbAsset.path, tool: 'opencode' }, 'read');
+  assert.ok(result, 'opencode.db 应可解析');
+  assert.ok(result.docs.length >= 2, '应解析出 2 条消息');
+  assert.ok(result.docs.some((d) => d.role === 'user' && d.text.includes('mcp server')), '应含用户消息');
+  assert.ok(result.sessions[0].title === '语义检索工具可用性测试', '应含会话标题');
 });
 
 function countObjects(cas) {

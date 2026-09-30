@@ -2,28 +2,37 @@ import './warnings.js';
 import { cmdScan } from './commands/scan.js';
 import { cmdList } from './commands/list.js';
 import { cmdShow } from './commands/show.js';
+import { cmdSearch } from './commands/search.js';
+import { cmdSessions } from './commands/sessions.js';
+import { cmdRead } from './commands/read.js';
+import { cmdIndex } from './commands/index.js';
+import { cmdServe } from './commands/serve.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const HELP = `walle（瓦力）— 本地 AI 资产管理工具 v${VERSION}
-当前阶段：Phase 1 只读扫描（对所有 AI 工具目录只读）
+当前阶段：Phase 2 浏览与检索（对所有 AI 工具目录只读）
 
 用法: walle <命令> [选项]
 
 命令:
   scan              扫描本机 AI 工具资产（增量、幂等）
-    --source <id>   只扫描指定源（可多次: --source codex --source zcode）
+    --source <id>   只扫描指定源（codex/zcode/cursor/opencode）
     --json          JSON 输出
-  list              列出资产清单
-    --kind <kind>   按类型过滤（config/session/memory/secret/...）
+  index             构建全文索引（敏感资产永不入索引）
+    --rebuild       丢弃现有索引全量重建
+  search <词>       跨工具全文搜索（支持中文）
+    --kind <kind>   按类型过滤   --source <id> 按来源过滤
+    --limit <n>     最多显示条数（默认 30）
+  sessions          会话清单（按时间倒序）
     --source <id>   按来源过滤
-    --all           包含失踪资产
-    --limit <n>     最多显示条数（默认 100）
-    --json          JSON 输出
+  read <id>         阅读会话（按轮次/角色输出完整内容）
+  list              列出资产清单
+    --kind/--source/--all/--limit/--json
   show <id>         查看资产详情与内容
-    --reveal        敏感资产不脱敏
-    --lines <n>     文本内容最多显示行数（默认 40）
-    --json          JSON 输出
+    --reveal        敏感资产不脱敏   --lines <n>
+  serve             启动本地 Web UI（http://127.0.0.1:4173）
+    --port <n>      指定端口
   help              显示本帮助
 
 数据落盘: ~/.walle/（可用 WALLE_HOME 环境变量重定向）
@@ -47,11 +56,26 @@ async function main(): Promise<void> {
     case 'scan':
       await cmdScan(rest);
       break;
+    case 'index':
+      await cmdIndex(rest);
+      break;
+    case 'search':
+      await cmdSearch(rest);
+      break;
+    case 'sessions':
+      await cmdSessions(rest);
+      break;
+    case 'read':
+      await cmdRead(rest);
+      break;
     case 'list':
       await cmdList(rest);
       break;
     case 'show':
       await cmdShow(rest);
+      break;
+    case 'serve':
+      await cmdServe(rest);
       break;
     default:
       console.error(`未知命令: ${cmd}\n`);
