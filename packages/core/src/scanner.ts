@@ -91,6 +91,7 @@ export async function runScan(
           const { hash } = cas.put(abs, maxBytes);
           if (!prev) {
             const id = store.insertAsset(sourceId, raw, hash, now);
+            store.addSnapshot(id, hash, raw.size, now); // 初始版本
             keepIds.add(id);
             result.new++;
           } else if (prev.contentHash === hash) {
@@ -98,7 +99,10 @@ export async function runScan(
             keepIds.add(prev.id);
             result.unchanged++;
           } else {
+            // 内容变化：旧版本留快照（旧对象仍在 CAS 中，按 hash 可回溯）
+            if (prev.contentHash) store.addSnapshot(prev.id, prev.contentHash, prev.size, now);
             store.updateAsset(prev.id, raw, hash, now);
+            store.addSnapshot(prev.id, hash, raw.size, now);
             keepIds.add(prev.id);
             result.updated++;
           }

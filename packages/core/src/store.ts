@@ -256,6 +256,30 @@ export class WalleStore {
     return num(toRow(this.db.prepare('SELECT COUNT(*) AS c FROM asset').get()).c);
   }
 
+  // ---------- P3：快照 ----------
+
+  /** 记录一次内容版本（内容本身已在 CAS 中，按 hash 寻址） */
+  addSnapshot(assetId: number, contentHash: string, size: number | null, now: string): number {
+    const r = this.db
+      .prepare('INSERT INTO snapshot (asset_id, captured_at, content_hash, size, storage_path) VALUES (?, ?, ?, ?, ?)')
+      .run(assetId, now, contentHash, size, `objects/${contentHash.slice(0, 2)}/${contentHash.slice(2)}`);
+    return num(r.lastInsertRowid);
+  }
+
+  listSnapshots(assetId: number): { id: number; capturedAt: string; contentHash: string; size: number | null }[] {
+    return (this.db
+      .prepare('SELECT id, captured_at, content_hash, size FROM snapshot WHERE asset_id = ? ORDER BY captured_at DESC, id DESC')
+      .all(assetId) as unknown[]).map((raw) => {
+      const r = toRow(raw);
+      return {
+        id: num(r.id),
+        capturedAt: String(r.captured_at),
+        contentHash: String(r.content_hash),
+        size: r.size == null ? null : num(r.size),
+      };
+    });
+  }
+
   // ---------- P2：索引 / 搜索 / 会话 ----------
 
   /** 待索引资产：active、非敏感、有内容哈希、且与已索引版本不同 */
