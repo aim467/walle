@@ -7,6 +7,7 @@ import { cmdSessions } from './commands/sessions.js';
 import { cmdRead } from './commands/read.js';
 import { cmdIndex } from './commands/index.js';
 import { cmdServe } from './commands/serve.js';
+import { cmdSnap, cmdDiff } from './commands/snapdiff.js';
 
 const VERSION = '0.2.0';
 
@@ -73,6 +74,12 @@ async function main(): Promise<void> {
       break;
     case 'show':
       await cmdShow(rest);
+      break;
+    case 'snap':
+      await cmdSnap(rest);
+      break;
+    case 'diff':
+      await cmdDiff(rest);
       break;
     case 'serve':
       await cmdServe(rest);
