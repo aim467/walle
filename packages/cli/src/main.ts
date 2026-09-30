@@ -9,8 +9,9 @@ import { cmdIndex } from './commands/index.js';
 import { cmdServe } from './commands/serve.js';
 import { cmdSnap, cmdDiff } from './commands/snapdiff.js';
 import { cmdBackup, cmdRestore, cmdRecover } from './commands/backup.js';
+import { cmdWatch } from './commands/watch.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const HELP = `walle（瓦力）— 本地 AI 资产管理工具 v${VERSION}
 当前阶段：Phase 2 浏览与检索（对所有 AI 工具目录只读）
@@ -33,6 +34,16 @@ const HELP = `walle（瓦力）— 本地 AI 资产管理工具 v${VERSION}
     --kind/--source/--all/--limit/--json
   show <id>         查看资产详情与内容
     --reveal        敏感资产不脱敏   --lines <n>
+  snap <id>         资产快照时间线
+  diff <id>         版本对比（默认 当前 vs 上一版本）
+    --from/--to <快照id|now>   --context <n>
+  recover <id>      误删恢复：导出资产内容到文件
+    -o <file>       输出路径   --snap <快照id>
+  backup [file]     全量备份归档（zip）
+    --include-secrets  凭证类内容也打包（默认排除）
+  restore <zip>     从归档恢复（到 ~/.walle）
+  watch             定时扫描+索引（变更自动留快照）
+    --interval <秒> 间隔（默认 300）   --once 只跑一次
   serve             启动本地 Web UI（http://127.0.0.1:4173）
     --port <n>      指定端口
   help              显示本帮助
@@ -90,6 +101,9 @@ async function main(): Promise<void> {
       break;
     case 'restore':
       await cmdRestore(rest);
+      break;
+    case 'watch':
+      await cmdWatch(rest);
       break;
     case 'serve':
       await cmdServe(rest);

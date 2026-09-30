@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runScan, buildIndex, WalleStore, ContentStore, ensureWalleHome, maskSecrets, looksSensitive, buildFtsQuery } from '../packages/core/dist/index.js';
+import { runScan, buildIndex, WalleStore, ContentStore, ensureWalleHome, maskSecrets, looksSensitive, buildFtsQuery, createZip, readZip, diffLines, collapseDiff } from '../packages/core/dist/index.js';
 import { adapters } from '../packages/adapters/dist/index.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -147,6 +147,55 @@ test('read 模式解析：会话消息完整返回', () => {
   assert.ok(result.docs.length >= 2, '应解析出 2 条消息');
   assert.ok(result.docs.some((d) => d.role === 'user' && d.text.includes('mcp server')), '应含用户消息');
   assert.ok(result.sessions[0].title === '语义检索工具可用性测试', '应含会话标题');
+});
+
+// ---------- P3：快照 / diff / zip / 复活 ----------
+
+test('内容变更自动留快照 + 失踪复活', async () => {
+  // 1. 修改 fixture 文件 → 扫描 → 旧版本留快照
+  const cfgPath = path.join(fixtures, 'codex', 'config.toml');
+  const oldHash = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === 'config.toml').contentHash;
+  fs.appendFileSync(cfgPath, '\n# p3 snapshot test\n');
+  const [r] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  assert.equal(r.updated, 1, 'config.toml 应更新 1');
+  const asset = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === 'config.toml');
+  const snaps = store.listSnapshots(asset.id);
+  assert.ok(snaps.some((s) => s.contentHash === oldHash), '旧版本应留存为快照');
+  assert.ok(snaps.some((s) => s.contentHash === asset.contentHash), '新版本应有快照');
+
+  // 2. diff 算法单测
+  const d = diffLines('a\nb\nc\n', 'a\nx\nc\n');
+  assert.deepEqual(d.filter((l) => l.op !== 'same'), [
+    { op: 'del', text: 'b' },
+    { op: 'add', text: 'x' },
+  ]);
+  assert.ok(collapseDiff(d).length >= 3, '折叠后应保留上下文');
+
+  // 3. 误删 → 失踪 → 回归复活（不产生重复资产行）
+  fs.rmSync(cfgPath);
+  await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const missingRows = store.listAssets({ tool: 'codex', includeMissing: true, limit: 500 }).filter((a) => a.path === 'config.toml');
+  assert.equal(missingRows.length, 1);
+  assert.equal(missingRows[0].status, 'missing');
+  fs.writeFileSync(cfgPath, 'model_provider = "custom"\nmodel = "test-model"\n\n[model_providers.custom]\nname = "test"\nbase_url = "https://example.invalid/v1"\nexperimental_bearer_token = "sk-fixture000000000000000000000000000000"\n\n# p3 snapshot test\n');
+  await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const after = store.listAssets({ tool: 'codex', includeMissing: true, limit: 500 }).filter((a) => a.path === 'config.toml');
+  assert.equal(after.length, 1, '复活不应产生重复行');
+  assert.equal(after[0].status, 'active', '回归资产应复活为 active');
+});
+
+test('zip roundtrip', () => {
+  const entries = [
+    { name: 'objects/ab/cdef', data: Buffer.from('hello walle 中文内容 '.repeat(200)) },
+    { name: 'walle.db', data: Buffer.alloc(4096, 7) },
+    { name: 'empty.bin', data: Buffer.alloc(0) },
+  ];
+  const back = readZip(createZip(entries));
+  assert.equal(back.length, entries.length);
+  for (const e of back) {
+    const orig = entries.find((x) => x.name === e.name);
+    assert.ok(Buffer.compare(e.data, orig.data) === 0, `${e.name} 内容应一致`);
+  }
 });
 
 function countObjects(cas) {
