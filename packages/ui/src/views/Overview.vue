@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { NCard, NTag, NTable, NStatistic } from 'naive-ui';
 
 interface SourceInfo {
   tool: string; displayName: string; rootPath: string; lastScannedAt: string | null;
@@ -32,55 +33,73 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h2>总览</h2>
-  <p class="dim">
-    数据落盘 ~/.walle · 写回开关
-    <span :class="allowWrite ? 'warn' : 'ok'">{{ allowWrite ? '已开启' : '关闭（默认，安全）' }}</span>
-  </p>
-
-  <div class="cards">
-    <div v-for="s in sources" :key="s.tool" class="panel card">
-      <div class="card-head">
-        <strong>{{ s.displayName }}</strong>
-        <span class="tag">{{ s.tool }}</span>
-      </div>
-      <div class="total">{{ s.total }} 个资产</div>
-      <div class="kinds">
-        <span v-for="(n, k) in s.byKind" :key="k" class="tag">{{ kindLabel[k] ?? k }} {{ n }}</span>
-      </div>
-      <div class="dim small">上次扫描 {{ fmtTime(s.lastScannedAt) }}</div>
-      <div class="dim small path">{{ s.rootPath }}</div>
+  <div class="page-head">
+    <div>
+      <h2>总览</h2>
+      <div class="dim small">全部 AI 工具资产的一站式视图 · 数据落盘 ~/.walle</div>
     </div>
+    <n-tag :bordered="false" size="small" round>
+      写回开关 <span :class="allowWrite ? 'warn' : 'ok'">{{ allowWrite ? '已开启' : '关闭（安全）' }}</span>
+    </n-tag>
   </div>
 
-  <h3>最近变更（谁刚被改过）</h3>
-  <div class="panel">
-    <table class="recent">
-      <thead><tr><th>时间</th><th>来源</th><th>类型</th><th>资产</th><th>大小</th></tr></thead>
+  <div class="cards">
+    <n-card v-for="s in sources" :key="s.tool" size="small" class="src-card">
+      <div class="card-head">
+        <span class="dot" :data-tool="s.tool" />
+        <strong>{{ s.displayName }}</strong>
+        <n-tag size="tiny" :bordered="false" round>{{ s.tool }}</n-tag>
+      </div>
+      <n-statistic :value="s.total" tabular-num-size="26px" class="stat">
+        <template #label><span class="dim small">个资产</span></template>
+      </n-statistic>
+      <div class="kinds">
+        <n-tag v-for="(n, k) in s.byKind" :key="k" size="tiny" :bordered="false" round>
+          {{ kindLabel[k] ?? k }} {{ n }}
+        </n-tag>
+      </div>
+      <div class="dim small foot">上次扫描 {{ fmtTime(s.lastScannedAt) }}</div>
+      <div class="dim small foot mono path" :title="s.rootPath">{{ s.rootPath }}</div>
+    </n-card>
+  </div>
+
+  <div class="sec-head">
+    <h3>最近变更</h3>
+    <span class="dim small">谁刚被改过 · 含第三方工具的并发修改</span>
+  </div>
+  <n-card size="small" class="recent-card">
+    <n-table size="small" :bordered="false" :single-line="false" class="recent">
+      <thead>
+        <tr><th>时间</th><th>来源</th><th>类型</th><th>资产</th><th style="text-align:right">大小</th></tr>
+      </thead>
       <tbody>
         <tr v-for="a in recent" :key="a.id">
           <td class="dim">{{ fmtTime(a.mtime) }}</td>
-          <td><span class="tag">{{ a.tool }}</span></td>
-          <td><span class="tag">{{ kindLabel[a.kind] ?? a.kind }}</span></td>
-          <td class="p">{{ a.path }} <span v-if="a.sensitive" class="warn">⚠</span></td>
-          <td class="dim">{{ humanSize(a.size) }}</td>
+          <td><n-tag size="tiny" :bordered="false" round>{{ a.tool }}</n-tag></td>
+          <td><n-tag size="tiny" :bordered="false" round>{{ kindLabel[a.kind] ?? a.kind }}</n-tag></td>
+          <td class="mono path-cell">{{ a.path }} <span v-if="a.sensitive" class="warn">⚠</span></td>
+          <td class="dim" style="text-align:right">{{ humanSize(a.size) }}</td>
         </tr>
       </tbody>
-    </table>
-  </div>
+    </n-table>
+  </n-card>
 </template>
 
 <style scoped>
-h2, h3 { margin: 8px 0; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 24px; }
-.card { padding: 12px 14px; }
-.card-head { display: flex; gap: 8px; align-items: center; }
-.total { font-size: 20px; font-weight: 600; margin: 6px 0; }
-.kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.small { font-size: 12px; }
-.path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.recent { width: 100%; border-collapse: collapse; font-size: 13px; }
-.recent th { text-align: left; color: var(--dim); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-.recent td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
-.recent td.p { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; }
+h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+h3 { margin: 0; font-size: 16px; }
+.sec-head { display: flex; gap: 10px; align-items: baseline; margin: 26px 0 10px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.card-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.dot[data-tool="codex"] { background: #0a84ff; }
+.dot[data-tool="zcode"] { background: #5e5ce6; }
+.dot[data-tool="cursor"] { background: #ff9f0a; }
+.dot[data-tool="opencode"] { background: #30d158; }
+.stat { margin: 4px 0 8px; }
+.kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.foot { line-height: 1.5; }
+.path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: 11px; }
+.path-cell { font-size: 12px; word-break: break-all; max-width: 480px; }
 </style>
