@@ -177,9 +177,10 @@ export class WalleStore {
     return num(r.lastInsertRowid);
   }
 
+  /** 当前未删除资产（含失踪——回归时需复活）：path -> 关键字段（用于增量比对） */
   getActiveAssets(sourceId: number): Map<string, { id: number; contentHash: string | null; size: number | null; mtime: string | null }> {
     const rows = this.db
-      .prepare("SELECT id, path, content_hash, size, mtime FROM asset WHERE source_id = ? AND status = 'active'")
+      .prepare("SELECT id, path, content_hash, size, mtime FROM asset WHERE source_id = ? AND status IN ('active', 'missing')")
       .all(sourceId) as unknown[];
     const map = new Map<string, { id: number; contentHash: string | null; size: number | null; mtime: string | null }>();
     for (const raw of rows) {
@@ -214,7 +215,7 @@ export class WalleStore {
   }
 
   touchAsset(id: number, raw: RawAsset, now: string): void {
-    this.db.prepare('UPDATE asset SET size = ?, mtime = ?, last_seen_at = ? WHERE id = ?').run(raw.size, raw.mtime, now, id);
+    this.db.prepare("UPDATE asset SET size = ?, mtime = ?, last_seen_at = ?, status = 'active' WHERE id = ?").run(raw.size, raw.mtime, now, id);
   }
 
   markMissing(sourceId: number, keepIds: Set<number>, now: string): number {

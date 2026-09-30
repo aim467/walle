@@ -8,6 +8,7 @@ import { cmdRead } from './commands/read.js';
 import { cmdIndex } from './commands/index.js';
 import { cmdServe } from './commands/serve.js';
 import { cmdSnap, cmdDiff } from './commands/snapdiff.js';
+import { cmdBackup, cmdRestore, cmdRecover } from './commands/backup.js';
 
 const VERSION = '0.2.0';
 
@@ -80,6 +81,15 @@ async function main(): Promise<void> {
       break;
     case 'diff':
       await cmdDiff(rest);
+      break;
+    case 'recover':
+      await cmdRecover(rest);
+      break;
+    case 'backup':
+      await cmdBackup(rest);
+      break;
+    case 'restore':
+      await cmdRestore(rest);
       break;
     case 'serve':
       await cmdServe(rest);
