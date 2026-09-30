@@ -1,0 +1,23 @@
+{
+  "name": "walle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Walle（瓦力）— 本地 AI 资产管理工具：统一收集、检索、备份各 AI 工具的配置、会话、记忆、Skills、MCP 等资产",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @walle/core && npm run build -w @walle/adapters && npm run build -w @walle/cli",
+    "test": "npm run build && node scripts/gen-fixtures.mjs && node --test test/smoke.test.mjs",
+    "walle": "node packages/cli/dist/main.js",
+    "verify": "node scripts/verify/verify-codex.mjs && node scripts/verify/verify-zcode.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
