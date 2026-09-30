@@ -38,7 +38,7 @@ export const zcodeAdapter: Adapter = {
     return null;
   },
 
-  capabilities: { read: true, write: false },
+  capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
     const root = rootOverride ?? path.join(os.homedir(), '.zcode');

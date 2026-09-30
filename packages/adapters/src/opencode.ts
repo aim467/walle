@@ -21,7 +21,7 @@ function dataRoot(): string {
 export const opencodeAdapter: Adapter = {
   id: 'opencode',
   displayName: 'opencode',
-  capabilities: { read: true, write: false },
+  capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
     const root = rootOverride ?? path.join(os.homedir(), '.config', 'opencode');

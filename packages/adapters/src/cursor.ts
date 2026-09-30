@@ -39,7 +39,7 @@ function fmt(rel: string): 'json' | 'sqlite' | 'markdown' | 'text' {
 export const cursorAdapter: Adapter = {
   id: 'cursor',
   displayName: 'Cursor',
-  capabilities: { read: true, write: false },
+  capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
     const root = rootOverride ?? path.join(os.homedir(), '.cursor');

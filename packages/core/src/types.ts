@@ -28,7 +28,7 @@ export interface RawAsset {
   sensitive: boolean;
 }
 
-/** 适配器统一接口（开发文档 §4.3）。P1-P3 所有适配器 write 均不可用。 */
+/** 适配器统一接口（开发文档 §4.3）。write 能力声明配合 WriteEngine 三保险使用；全局开关默认关闭。 */
 export interface Adapter {
   id: string;
   displayName: string;
@@ -42,7 +42,7 @@ export interface Adapter {
   resolve?(root: string, rel: string): string;
   /** 结构化解析（会话等）。P2 起由索引器与阅读器调用 */
   parse?(contentPath: string, raw: { kind: AssetKind; path: string; tool: string; name?: string }, mode: ParseMode): ParsedResult | null;
-  capabilities: { read: true; write: false };
+  capabilities: { read: true; write: boolean };
 }
 
 /** 解析模式：index 给全文索引（过滤噪声、截断）；read 给阅读器（完整、含 developer/环境注入） */

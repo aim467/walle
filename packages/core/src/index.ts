@@ -8,3 +8,5 @@ export * from './tokenize.js';
 export * from './indexer.js';
 export * from './diff.js';
 export * from './zip.js';
+export * from './config.js';
+export * from './write.js';

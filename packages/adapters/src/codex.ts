@@ -53,7 +53,7 @@ export const codexAdapter: Adapter = {
     return null;
   },
 
-  capabilities: { read: true, write: false },
+  capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
     const root = rootOverride ?? path.join(os.homedir(), '.codex');
