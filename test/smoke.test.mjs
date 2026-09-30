@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runScan, buildIndex, WalleStore, ContentStore, ensureWalleHome, maskSecrets, looksSensitive, buildFtsQuery, createZip, readZip, diffLines, collapseDiff } from '../packages/core/dist/index.js';
+import { runScan, buildIndex, WalleStore, ContentStore, ensureWalleHome, maskSecrets, looksSensitive, buildFtsQuery, createZip, readZip, diffLines, collapseDiff, WriteEngine } from '../packages/core/dist/index.js';
 import { adapters } from '../packages/adapters/dist/index.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -196,6 +196,52 @@ test('zip roundtrip', () => {
     const orig = entries.find((x) => x.name === e.name);
     assert.ok(Buffer.compare(e.data, orig.data) === 0, `${e.name} 内容应一致`);
   }
+});
+
+// ---------- P4：写回三保险 ----------
+
+test('写回成功路径：内容落盘 + 前后快照 + 无临时文件残留', async () => {
+  const engine = new WriteEngine(store, cas, adapters);
+  const cfg = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === 'config.toml');
+  const snapsBefore = store.listSnapshots(cfg.id).length;
+  const result = engine.write(cfg.id, Buffer.from('model_provider = "custom"\nmodel = "test-model"\n\n[model_providers.custom]\nname = "test"\nbase_url = "https://example.invalid/v1"\nexperimental_bearer_token = "sk-fixture000000000000000000000000000000"\n# p4 written\n'));
+  assert.ok(result.ok, `写回应成功: ${result.reason}`);
+  assert.ok(result.snapshotId, '应返回写前快照 id');
+  assert.ok(store.listSnapshots(cfg.id).length >= snapsBefore + 1, '写后应有新快照');
+  const abs = path.join(fixtures, 'codex', 'config.toml');
+  assert.ok(fs.readFileSync(abs, 'utf8').endsWith('# p4 written\n'), '内容应落盘');
+  const leftovers = fs.readdirSync(path.dirname(abs)).filter((f) => f.includes('.walle-tmp-'));
+  assert.equal(leftovers.length, 0, '不应有临时文件残留');
+  assert.ok(!fs.existsSync(abs + '.walle-tmp-x'), '原文件未被半写');
+});
+
+test('冲突检测：扫描后外部改动 → 写回拒绝', async () => {
+  const engine = new WriteEngine(store, cas, adapters);
+  const cfg = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === 'config.toml');
+  // 外部直接改文件（不经 walle，无扫描）
+  fs.appendFileSync(path.join(fixtures, 'codex', 'config.toml'), '\n# external edit\n');
+  const result = engine.write(cfg.id, Buffer.from('malicious = true\n'));
+  assert.equal(result.ok, false, '应被冲突检测拒绝');
+  assert.match(result.reason ?? '', /冲突/, '拒绝原因应提示冲突');
+  // 磁盘未被写坏
+  assert.ok(fs.readFileSync(path.join(fixtures, 'codex', 'config.toml'), 'utf8').includes('# external edit'));
+});
+
+test('会话资产永不写回', () => {
+  const engine = new WriteEngine(store, cas, adapters);
+  const sess = store.listAssets({ tool: 'codex', kind: 'session', limit: 1 })[0];
+  const result = engine.write(sess.id, Buffer.from('x'));
+  assert.equal(result.ok, false);
+  assert.match(result.reason ?? '', /只读/);
+});
+
+test('跨工具下发：目标匹配与写入', async () => {
+  // fixture：codex config.toml 内容 → 无跨工具同名资产（拒绝）；--to-asset 路径由 zcode setting.json 同名验证
+  const engine = new WriteEngine(store, cas, adapters);
+  const zSet = store.listAssets({ tool: 'zcode', limit: 500 }).find((a) => a.path === 'v2/setting.json');
+  const result = engine.write(zSet.id, Buffer.from(JSON.stringify({ theme: 'written-by-walle' })));
+  assert.ok(result.ok, `zcode setting.json 写回应成功: ${result.reason}`);
+  assert.equal(fs.readFileSync(path.join(fixtures, 'zcode', 'v2', 'setting.json'), 'utf8'), JSON.stringify({ theme: 'written-by-walle' }));
 });
 
 function countObjects(cas) {
