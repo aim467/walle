@@ -1,9 +1,13 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { adapters } from '@walle/adapters';
 import { openStores } from '../context.js';
 
-/** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats） */
+/** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
+ *  页面为独立静态文件 packages/cli/ui/（不内嵌），改页面刷新即生效、无需重新构建。 */
 
 interface ApiDoc {
   seq: number;
@@ -12,111 +16,43 @@ interface ApiDoc {
   text: string;
 }
 
-const PAGE = `<!doctype html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>walle · 瓦力</title>
-<style>
-:root{
-  --bg:#0f1115;--panel:#171a21;--panel2:#1d212b;--border:#2a2f3a;--text:#d7dce4;--dim:#8b93a1;
-  --accent:#4f8cff;--user:#2d4a78;--assistant:#24313f;--system:#2b2436;--mark:#ffd54f;
+/** UI 静态文件目录：WALLE_UI_DIR > 包根 ui/（dist/commands/serve.js 上三级） */
+function resolveUiDir(): string | null {
+  if (process.env.WALLE_UI_DIR && fs.existsSync(process.env.WALLE_UI_DIR)) return process.env.WALLE_UI_DIR;
+  const pkgUi = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'ui');
+  return fs.existsSync(pkgUi) ? pkgUi : null;
 }
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 "Segoe UI",system-ui,"Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column}
-header{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--panel)}
-header .logo{font-weight:700;color:var(--accent);white-space:nowrap}
-#q{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:14px;outline:none}
-#q:focus{border-color:var(--accent)}
-select{background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px}
-main{flex:1;display:flex;min-height:0}
-#list{width:420px;border-right:1px solid var(--border);overflow-y:auto;padding:8px}
-#reader{flex:1;overflow-y:auto;padding:16px 22px}
-.item{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
-.item:hover{border-color:var(--accent)}
-.item .meta{color:var(--dim);font-size:12px;display:flex;gap:8px;flex-wrap:wrap}
-.item .title{font-weight:600;margin:2px 0}
-.item .snip{color:var(--dim);font-size:13px}
-mark{background:var(--mark);color:#000;border-radius:2px;padding:0 1px}
-.msg{border-radius:12px;padding:10px 14px;margin-bottom:12px;max-width:860px;white-space:pre-wrap;word-break:break-word}
-.msg .who{font-size:12px;color:var(--dim);margin-bottom:4px}
-.msg.user{background:var(--user)}
-.msg.assistant{background:var(--assistant)}
-.msg.developer,.msg.system{background:var(--system);color:#b9aecb}
-.msg .code{background:#0b0d10;border:1px solid var(--border);border-radius:6px;padding:8px;margin:6px 0;overflow-x:auto;white-space:pre;font-family:Consolas,monospace;font-size:13px}
-.empty{color:var(--dim);text-align:center;margin-top:40px}
-.tag{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:0 6px;font-size:11px}
-.hint{color:var(--dim);font-size:12px;padding:4px 10px 10px}
-</style>
-</head>
-<body>
-<header>
-  <span class="logo">walle · 瓦力</span>
-  <input id="q" placeholder="搜索全部会话与记忆…（Enter 搜索）" autofocus>
-  <select id="tool"><option value="">全部来源</option></select>
-  <select id="mode">
-    <option value="search">搜索</option>
-    <option value="sessions">会话列表</option>
-  </select>
-</header>
-<main>
-  <div id="list"><div class="empty">输入关键词搜索，或切换到「会话列表」</div></div>
-  <div id="reader"><div class="empty">← 选择左侧结果查看完整内容</div></div>
-</main>
-<script>
-const $=s=>document.querySelector(s);
-const list=$('#list'),reader=$('#reader'),q=$('#q'),tool=$('#tool'),mode=$('#mode');
-const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const roleLabel={user:'用户',assistant:'助手',developer:'系统注入',system:'系统',title:'标题'};
-async function init(){
-  const st=await (await fetch('/api/stats')).json();
-  for(const s of st.sources){const o=document.createElement('option');o.value=s.tool;o.textContent=s.displayName;tool.appendChild(o);}
-}
-async function doSearch(){
-  const query=q.value.trim();
-  const p=new URLSearchParams();
-  if(query)p.set('q',query);
-  if(tool.value)p.set('tool',tool.value);
-  if(mode.value==='sessions')p.set('sessions','1');
-  const data=await (await fetch('/api/list?'+p)).json();
-  if(data.error){list.innerHTML='<div class="empty">'+esc(data.error)+'</div>';return;}
-  if(!data.hits||!data.hits.length){list.innerHTML='<div class="empty">没有结果</div>';return;}
-  list.innerHTML='';
-  for(const h of data.hits){
-    const d=document.createElement('div');d.className='item';
-    d.innerHTML='<div class="meta"><span class="tag">'+esc(h.tool)+'</span><span>'+esc(h.time??'')+'</span><span>'+esc(h.kind)+(h.role&&h.role!=='title'?' · '+esc(roleLabel[h.role]||h.role):'')+'</span></div>'
-      +'<div class="title">'+esc(h.title??h.path)+'</div><div class="snip">'+h.snippet+'</div>';
-    d.onclick=()=>openAsset(h.assetId);
-    list.appendChild(d);
+
+const UI_DIR = resolveUiDir();
+
+/** 读取 UI 静态文件；仅允许 ui 目录内的普通文件（防路径穿越），带扩展名的静态类型映射 */
+const UI_MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json; charset=utf-8',
+};
+
+function serveUiFile(res: http.ServerResponse, rel: string): void {
+  if (!UI_DIR) {
+    res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('未找到 UI 静态文件目录（packages/cli/ui/）。请检查安装完整性，或用 WALLE_UI_DIR 指定。');
+    return;
   }
-}
-async function openAsset(id){
-  reader.innerHTML='<div class="empty">加载中…</div>';
-  const data=await (await fetch('/api/read?asset='+id)).json();
-  if(!data.messages||!data.messages.length){reader.innerHTML='<div class="empty">该资产没有可读消息（可能是未解析格式）</div>';return;}
-  reader.innerHTML='<div class="hint">'+esc(data.title??'')+' · '+data.messages.length+' 条消息 · 来源 '+esc(data.tool)+'</div>';
-  for(const m of data.messages){
-    const div=document.createElement('div');div.className='msg '+esc(m.role||'assistant');
-    const who=document.createElement('div');who.className='who';
-    who.textContent=(roleLabel[m.role]||m.role||'未知')+(m.ts?' · '+m.ts.slice(0,19).replace('T',' '):'');
-    const body=document.createElement('div');
-    // 简单代码块渲染：\`\`\` 分段
-    const parts=String(m.text).split('\`\`\`');
-    parts.forEach((p,i)=>{
-      if(i%2===1){const c=document.createElement('div');c.className='code';c.textContent=p.replace(/^\\w*\\n/,'');body.appendChild(c);}
-      else body.appendChild(document.createTextNode(p));
-    });
-    div.appendChild(who);div.appendChild(body);reader.appendChild(div);
+  const relPath = rel === '/' ? 'index.html' : rel.replace(/^\/+/, '');
+  const abs = path.resolve(UI_DIR, relPath);
+  if (!abs.startsWith(path.resolve(UI_DIR) + path.sep) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    res.writeHead(404);
+    res.end('not found');
+    return;
   }
+  const type = UI_MIME[path.extname(abs).toLowerCase()] ?? 'application/octet-stream';
+  res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
+  res.end(fs.readFileSync(abs));
 }
-q.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
-mode.addEventListener('change',()=>{if(q.value.trim()||mode.value==='sessions')doSearch();});
-tool.addEventListener('change',doSearch);
-init();
-</script>
-</body>
-</html>`;
 
 function json(res: http.ServerResponse, data: unknown): void {
   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -131,9 +67,8 @@ export async function cmdServe(rest: string[]): Promise<void> {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
-      if (url.pathname === '/') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(PAGE);
+      if (url.pathname === '/' || UI_MIME[path.extname(url.pathname).toLowerCase()]) {
+        serveUiFile(res, url.pathname);
         return;
       }
       if (url.pathname === '/api/stats') {
