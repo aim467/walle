@@ -7,3 +7,4 @@ export * from './scanner.js';
 export * from './tokenize.js';
 export * from './indexer.js';
 export * from './diff.js';
+export * from './zip.js';
