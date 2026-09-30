@@ -34,6 +34,12 @@ mark{background:var(--mark);color:#000;border-radius:2px;padding:0 1px}
 .empty{color:var(--dim);text-align:center;margin-top:40px}
 .tag{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:0 6px;font-size:11px}
 .hint{color:var(--dim);font-size:12px;padding:4px 10px 10px}
+.btn{background:var(--accent);border:none;border-radius:6px;color:#fff;padding:5px 12px;font-size:12px;cursor:pointer}
+.btn:hover{opacity:.85}
+.warn{color:#ffb84f}
+#srcTa{width:98%;height:calc(100vh - 120px);background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:14px;font:13px/1.5 Consolas,monospace;white-space:pre;outline:none}
+#srcTa:focus{border-color:var(--accent)}
+#srcTa[readonly]{opacity:.85}
 </style>
 </head>
 <body>
@@ -79,9 +85,20 @@ async function doSearch(){
 }
 async function openAsset(id){
   reader.innerHTML='<div class="empty">加载中…</div>';
+  currentAsset=id;
   const data=await (await fetch('/api/read?asset='+id)).json();
-  if(!data.messages||!data.messages.length){reader.innerHTML='<div class="empty">该资产没有可读消息（可能是未解析格式）</div>';return;}
-  reader.innerHTML='<div class="hint">'+esc(data.title??'')+' · '+data.messages.length+' 条消息 · 来源 '+esc(data.tool)+'</div>';
+  if(!data.messages||!data.messages.length){
+    // 非会话资产：尝试原文视图（可编辑）
+    const src=await (await fetch('/api/source?asset='+id)).json();
+    if(src.error){reader.innerHTML='<div class="empty">'+esc(src.error)+'</div>';return;}
+    renderSource(src);
+    return;
+  }
+  const cfg=await (await fetch('/api/config')).json();
+  reader.innerHTML='<div class="hint">'+esc(data.title??'')+' · '+data.messages.length+' 条消息 · 来源 '+esc(data.tool)
+    +'<span style="float:right"><button class="btn" id="editBtn">编辑此资产</button>'+(cfg.allowWrite?'':' <span class="warn">写回开关未开启</span>')+'</span></div>';
+  const eb=document.getElementById('editBtn');
+  if(eb)eb.onclick=()=>editSource(id);
   for(const m of data.messages){
     const div=document.createElement('div');div.className='msg '+esc(m.role||'assistant');
     const who=document.createElement('div');who.className='who';
@@ -95,6 +112,41 @@ async function openAsset(id){
     });
     div.appendChild(who);div.appendChild(body);reader.appendChild(div);
   }
+}
+let currentAsset=null;
+async function editSource(id){
+  const src=await (await fetch('/api/source?asset='+id)).json();
+  if(src.error){reader.innerHTML='<div class="empty">'+esc(src.error)+'</div>';return;}
+  renderSource(src,true);
+}
+function renderSource(src,edit){
+  currentAsset=src.assetId;
+  reader.innerHTML='';
+  const hint=document.createElement('div');hint.className='hint';
+  hint.innerHTML='来源 '+esc(src.tool)+' · '+esc(src.path)+' · '+esc(src.kind)+(src.sensitive?' <span class="warn">敏感资产（展示脱敏，直接保存会把脱敏文本写回！）</span>':'')
+    +'<span style="float:right" id="srcActions"></span>';
+  reader.appendChild(hint);
+  const ta=document.createElement('textarea');ta.id='srcTa';ta.spellcheck=false;
+  ta.value=src.content;ta.readOnly=!edit;
+  reader.appendChild(ta);
+  const actions=document.getElementById('srcActions');
+  const save=document.createElement('button');save.className='btn';save.textContent=edit?'保存并写回':'编辑';
+  save.onclick=async()=>{
+    if(!edit){editSource(src.assetId);return;}
+    const cfg=await (await fetch('/api/config')).json();
+    if(!cfg.allowWrite){alert('写回开关未开启：先在终端运行 walle write-enable');return;}
+    const r=await (await fetch('/api/write',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({assetId:src.assetId,content:ta.value})})).json();
+    if(r.ok){save.textContent='已写回 ✓';setTimeout(()=>save.textContent='保存并写回',2000);}
+    else alert('写回被拒绝: '+(r.reason||r.error)+'\n（可先 walle scan 刷新，或 CLI --force）');
+  };
+  const cancel=document.createElement('button');cancel.className='btn';cancel.textContent='取消';
+  cancel.style.marginLeft='6px';cancel.style.display=edit?'':'none';
+  cancel.onclick=()=>editSource2View(src.assetId);
+  actions.appendChild(save);actions.appendChild(cancel);
+}
+async function editSource2View(id){
+  const src=await (await fetch('/api/source?asset='+id)).json();
+  if(!src.error)renderSource(src,false);
 }
 let debounceTimer=null;
 q.addEventListener('input',()=>{clearTimeout(debounceTimer);debounceTimer=setTimeout(doSearch,300);});

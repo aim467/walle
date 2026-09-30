@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { WriteEngine, readWalleConfig, maskSecrets } from '@walle/core';
 import { adapters } from '@walle/adapters';
 import { openStores } from '../context.js';
 
@@ -100,6 +101,49 @@ export async function cmdServe(rest: string[]): Promise<void> {
             assetId: h.assetId, tool: h.tool, kind: h.kind, role: h.role,
             time: null, title: h.sessionTitle ?? h.assetName ?? h.path, snippet: h.snippet, path: h.path,
           })),
+        });
+        return;
+      }
+      if (url.pathname === '/api/source') {
+        // 编辑器取原文：文件型资产（session/sqlite 拒绝），敏感脱敏（--reveal 语义不适用于 Web）
+        const asset = store.getAssetById(Number(url.searchParams.get('asset')));
+        if (!asset) { json(res, { error: 'asset not found' }); return; }
+        if (asset.kind === 'session' || asset.rawFormat === 'sqlite' || asset.rawFormat === 'dir') {
+          json(res, { error: '该资产类型不可编辑' });
+          return;
+        }
+        if (!asset.contentHash || !cas.has(asset.contentHash)) { json(res, { error: '内容不在仓中' }); return; }
+        let text = cas.get(asset.contentHash)!.toString('utf8');
+        if (asset.sensitive) text = maskSecrets(text);
+        json(res, { assetId: asset.id, tool: asset.tool, path: asset.path, kind: asset.kind, sensitive: !!asset.sensitive, content: text });
+        return;
+      }
+      if (url.pathname === '/api/config') {
+        json(res, { allowWrite: !!readWalleConfig().allowWrite });
+        return;
+      }
+      if (url.pathname === '/api/write' && req.method === 'POST') {
+        // P4 Web UI 编辑下发：body = { assetId, content, force? }
+        // 仅监听 127.0.0.1 的本机页面可访问；仍要求全局写回开关已开启
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 2 * 1024 * 1024) req.destroy(); // 2MB 上限
+        });
+        req.on('end', () => {
+          try {
+            const cfg = readWalleConfig();
+            if (!cfg.allowWrite) {
+              json(res, { ok: false, error: '写回开关未开启（walle write-enable）' });
+              return;
+            }
+            const { assetId, content, force } = JSON.parse(body) as { assetId: number; content: string; force?: boolean };
+            const engine = new WriteEngine(store, cas, adapters);
+            const result = engine.write(Number(assetId), Buffer.from(String(content), 'utf8'), { force: !!force });
+            json(res, result);
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
         });
         return;
       }
