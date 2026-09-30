@@ -10,6 +10,7 @@ import { cmdServe } from './commands/serve.js';
 import { cmdSnap, cmdDiff } from './commands/snapdiff.js';
 import { cmdBackup, cmdRestore, cmdRecover } from './commands/backup.js';
 import { cmdWatch } from './commands/watch.js';
+import { cmdWriteEnable, cmdPush, cmdRollback } from './commands/write.js';
 
 const VERSION = '0.3.0';
 
@@ -39,6 +40,12 @@ const HELP = `walle（瓦力）— 本地 AI 资产管理工具 v${VERSION}
     --from/--to <快照id|now>   --context <n>
   recover <id>      误删恢复：导出资产内容到文件
     -o <file>       输出路径   --snap <快照id>
+  write-enable      开启/关闭写回开关（默认关闭）
+    --off           关闭
+  push <id>         写回：把内容写入源工具文件（三保险：快照/原子写/冲突检测）
+    -f <file>       内容来源文件（缺省读 stdin）   --force 跳过冲突检测
+  rollback <id>     回滚到历史快照（复用三保险）
+    --snap <id>     指定快照（缺省为最近的不同版本）
   backup [file]     全量备份归档（zip）
     --include-secrets  凭证类内容也打包（默认排除）
   restore <zip>     从归档恢复（到 ~/.walle）
@@ -104,6 +111,15 @@ async function main(): Promise<void> {
       break;
     case 'watch':
       await cmdWatch(rest);
+      break;
+    case 'write-enable':
+      await cmdWriteEnable(rest);
+      break;
+    case 'push':
+      await cmdPush(rest);
+      break;
+    case 'rollback':
+      await cmdRollback(rest);
       break;
     case 'serve':
       await cmdServe(rest);
