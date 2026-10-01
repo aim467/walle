@@ -17,7 +17,7 @@ const kindLabel: Record<string, string> = {
   config: '配置', memory: '记忆', skill: 'Skill', mcp: 'MCP', rule: '规则',
   agent: '子代理', plugin: '插件', secret: '凭证', other: '其他',
 };
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode' };
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode' };
 const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo };
 /** 会话类资产由「会话」页负责，此处排除避免两个页面职责冲突 */
 const EXCLUDED_KINDS = new Set(['session', 'prompt']);
