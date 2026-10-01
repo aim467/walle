@@ -128,7 +128,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
         const tool = url.searchParams.get('tool') || undefined;
         const wantSessions = url.searchParams.get('sessions') === '1';
         if (wantSessions) {
-          const rows = store.listSessions({ tool, limit: 80 });
+          const rows = store.listSessions({ tool, limit: Number(url.searchParams.get('limit')) || 80 });
           json(res, {
             hits: rows.map((s) => ({
               assetId: s.assetId, tool: s.tool, kind: 'session', role: null,
