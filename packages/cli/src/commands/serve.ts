@@ -132,7 +132,9 @@ export async function cmdServe(rest: string[]): Promise<void> {
           json(res, {
             hits: rows.map((s) => ({
               assetId: s.assetId, subId: s.subId, tool: s.tool, kind: 'session', role: null,
-              time: s.startedAt, title: s.title ?? '(无标题)', path: s.assetPath, snippet: `${s.model ?? ''} ${s.projectPath ?? ''}`.trim(),
+              time: s.startedAt, title: s.title ?? '(无标题)', path: s.assetPath,
+              model: s.model, projectPath: s.projectPath, messageCount: s.messageCount,
+              snippet: `${s.model ?? ''} ${s.projectPath ?? ''}`.trim(),
             })),
           });
           return;
@@ -151,17 +153,21 @@ export async function cmdServe(rest: string[]): Promise<void> {
         return;
       }
       if (url.pathname === '/api/source') {
-        // 编辑器取原文：文件型资产（session/sqlite 拒绝），敏感脱敏（--reveal 语义不适用于 Web）
+        // 编辑器取原文；raw=1 时只读预览放宽到会话资产（jsonl 等文本），sqlite 仍拒绝
+        const raw = url.searchParams.get('raw') === '1';
         const asset = store.getAssetById(Number(url.searchParams.get('asset')));
         if (!asset) { json(res, { error: 'asset not found' }); return; }
-        if (asset.kind === 'session' || asset.rawFormat === 'sqlite' || asset.rawFormat === 'dir') {
-          json(res, { error: '该资产类型不可编辑' });
+        if (asset.rawFormat === 'sqlite' || asset.rawFormat === 'dir') {
+          json(res, { error: raw ? '二进制库不支持原文预览' : '该资产类型不可编辑' });
           return;
         }
+        if (asset.kind === 'session' && !raw) { json(res, { error: '该资产类型不可编辑' }); return; }
         if (!asset.contentHash || !cas.has(asset.contentHash)) { json(res, { error: '内容不在仓中' }); return; }
         let text = cas.get(asset.contentHash)!.toString('utf8');
+        let truncated = false;
+        if (text.length > 512 * 1024) { text = text.slice(0, 512 * 1024); truncated = true; }
         if (asset.sensitive) text = maskSecrets(text);
-        json(res, { assetId: asset.id, tool: asset.tool, path: asset.path, kind: asset.kind, sensitive: !!asset.sensitive, content: text });
+        json(res, { assetId: asset.id, tool: asset.tool, path: asset.path, kind: asset.kind, sensitive: !!asset.sensitive, content: text, truncated });
         return;
       }
       if (url.pathname === '/api/config') {
@@ -204,7 +210,8 @@ export async function cmdServe(rest: string[]): Promise<void> {
         // 未传时回退容器内第一个会话（单会话文件如 Codex rollout 即此形态）
         const subParam = url.searchParams.get('sub');
         const sessMeta = store.listSessions({ tool: asset.tool, limit: 1000 });
-        const title = sessMeta.find((s) => s.assetId === asset.id && (!subParam || s.subId === subParam))?.title ?? null;
+        const metaRow = sessMeta.find((s) => s.assetId === asset.id && (!subParam || s.subId === subParam));
+        const title = metaRow?.title ?? null;
         let messages: ApiDoc[] = [];
         const adapter = adapters.find((a) => a.id === asset.tool);
         if (adapter?.parse && asset.contentHash && cas.has(asset.contentHash)) {
@@ -223,7 +230,13 @@ export async function cmdServe(rest: string[]): Promise<void> {
               .map((d) => ({ seq: d.seq, role: d.role ?? null, ts: d.ts ?? null, text: d.text }));
           }
         }
-        json(res, { tool: asset.tool, path: asset.path, title, messages });
+        json(res, {
+          tool: asset.tool, path: asset.path, title, messages,
+          meta: metaRow ? {
+            model: metaRow.model, projectPath: metaRow.projectPath, startedAt: metaRow.startedAt,
+            messageCount: metaRow.messageCount, subId: metaRow.subId,
+          } : null,
+        });
         return;
       }
       res.writeHead(404);

@@ -1,72 +1,124 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { NInput, NEmpty, NTag } from 'naive-ui';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { NInput, NEmpty, NTag, NButton } from 'naive-ui';
 import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 
-interface Hit { assetId: number; subId: string; tool: string; kind: string; role: string | null; time: string | null; title: string; snippet: string; path: string }
+interface Hit {
+  assetId: number; subId: string; tool: string; kind: string; role: string | null;
+  time: string | null; title: string; snippet: string; path: string;
+  model?: string | null; projectPath?: string | null; messageCount?: number | null;
+}
 interface Msg { seq: number; role: string | null; ts: string | null; text: string }
+interface ReadMeta { model: string | null; projectPath: string | null; startedAt: string | null; messageCount: number | null; subId: string }
 
-const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统' };
-interface ToolDef { id: string; name: string; logo?: string; color: string }
+const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具' };
+interface ToolDef { id: string; name: string; logo?: string; letter: string; color: string }
 const TOOLS: ToolDef[] = [
-  { id: 'zcode', name: 'ZCode', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
-  { id: 'codex', name: 'Codex CLI', logo: openaiLogo, color: '#10a37f' },
-  { id: 'cursor', name: 'Cursor', logo: cursorLogo, color: '#111' },
-  { id: 'opencode', name: 'opencode', logo: opencodeLogo, color: '#111' },
+  { id: 'zcode', name: 'ZCode', letter: 'Z', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
+  { id: 'codex', name: 'Codex CLI', logo: openaiLogo, letter: 'C', color: '#10a37f' },
+  { id: 'cursor', name: 'Cursor', logo: cursorLogo, letter: 'C', color: '#111' },
+  { id: 'opencode', name: 'OpenCode', logo: opencodeLogo, letter: 'O', color: '#111' },
 ];
 
-const q = ref('');
-const activeTool = ref<string | null>(null); // null = 跨工具搜索
+const activeTool = ref<string | null>(null); // null = 全部工具
 const hits = ref<Hit[]>([]);
 const allSessions = ref<Hit[]>([]);
+const globalQ = ref('');
+const listQ = ref('');
 const msgs = ref<Msg[]>([]);
-const readTitle = ref('');
-const readTool = ref('');
+const readMeta = ref<{ title: string | null; tool: string; meta: ReadMeta | null } | null>(null);
+const curKey = ref('');
+const detailTab = ref<'msgs' | 'overview' | 'tools' | 'files' | 'system' | 'raw'>('msgs');
+const rawText = ref<string | null>(null);
+const rawLoading = ref(false);
 
 const toolStats = computed(() => {
-  const m = new Map<string, { count: number; latest: string | null }>();
-  for (const s of allSessions.value) {
-    const cur = m.get(s.tool) ?? { count: 0, latest: null as string | null };
-    cur.count++;
-    if (!cur.latest || (s.time ?? '') > cur.latest) cur.latest = s.time;
-    m.set(s.tool, cur);
-  }
+  const m = new Map<string, { count: number }>();
+  for (const s of allSessions.value) m.set(s.tool, { count: (m.get(s.tool)?.count ?? 0) + 1 });
   return m;
 });
-const listTitle = computed(() =>
-  activeTool.value ? `${TOOLS.find((t) => t.id === activeTool.value)?.name} · ${hits.value.length} 个会话` : (q.value.trim() ? `搜索「${q.value.trim()}」 · ${hits.value.length} 条结果` : '跨工具搜索'),
-);
+const totalCount = computed(() => allSessions.value.length);
+const listTitle = computed(() => {
+  const name = activeTool.value ? (TOOLS.find((t) => t.id === activeTool.value)?.name ?? activeTool.value) : '全部工具';
+  return `${name} · ${hits.value.length} 个会话`;
+});
+const listFiltered = computed(() => {
+  if (!listQ.value.trim()) return hits.value;
+  const s = listQ.value.toLowerCase();
+  return hits.value.filter((h) => (h.title ?? '').toLowerCase().includes(s) || (h.projectPath ?? '').toLowerCase().includes(s) || (h.model ?? '').toLowerCase().includes(s));
+});
+const toolMsgs = computed(() => msgs.value.filter((m) => m.role === 'tool'));
+const systemMsgs = computed(() => msgs.value.filter((m) => m.role === 'developer' || m.role === 'system'));
+const visibleMsgs = computed(() => msgs.value.filter((m) => m.role !== 'tool'));
 
 async function loadSessions() {
   allSessions.value = ((await (await fetch('/api/list?sessions=1&limit=2000')).json()).hits ?? []) as Hit[];
 }
 function selectTool(id: string | null) {
   activeTool.value = id;
-  q.value = '';
+  listQ.value = '';
   const p = new URLSearchParams({ sessions: '1' });
   if (id) p.set('tool', id);
   fetch('/api/list?' + p).then((r) => r.json()).then((d) => { hits.value = d.hits ?? []; });
 }
-async function doSearch() {
-  if (!q.value.trim()) return;
-  const p = new URLSearchParams({ q: q.value.trim() });
-  if (activeTool.value) p.set('tool', activeTool.value);
-  const d = await (await fetch('/api/list?' + p)).json();
+async function globalSearch() {
+  if (!globalQ.value.trim()) return;
+  activeTool.value = null;
+  listQ.value = '';
+  const d = await (await fetch('/api/list?q=' + encodeURIComponent(globalQ.value.trim()))).json();
   hits.value = d.hits ?? [];
 }
-async function openAsset(id: number, subId?: string) {
-  msgs.value = [];
-  readTitle.value = '加载中…';
-  const p = new URLSearchParams({ asset: String(id) });
-  if (subId) p.set('sub', subId);
+async function openAsset(h: Hit) {
+  const p = new URLSearchParams({ asset: String(h.assetId) });
+  if (h.subId) p.set('sub', h.subId);
   const d = await (await fetch('/api/read?' + p)).json();
-  readTool.value = d.tool ?? '';
-  readTitle.value = (d.title ?? d.path ?? '') + (d.messages?.length ? ` · ${d.messages.length} 条消息` : '');
+  readMeta.value = { title: d.title ?? h.title, tool: d.tool, meta: d.meta ?? null };
+  curKey.value = h.assetId + '|' + (h.subId ?? '');
   msgs.value = d.messages ?? [];
+  detailTab.value = 'msgs';
+  rawText.value = null;
 }
-function fmtTime(iso: string | null): string { return iso ? iso.replace('T', ' ').slice(0, 16).replace('Z', '') : ''; }
+async function loadRaw() {
+  if (!readMeta.value) return;
+  const p = new URLSearchParams({ asset: String(currentAssetId()), raw: '1' });
+  rawLoading.value = true;
+  try {
+    const d = await (await fetch('/api/source?' + p)).json();
+    rawText.value = d.error ? `（${d.error}）` : d.content + (d.truncated ? '\n…（超过 512KB，已截断）' : '');
+  } finally {
+    rawLoading.value = false;
+  }
+}
+function currentAssetId(): number {
+  const cur = listFiltered.value.find((h) => h.title === readMeta.value?.title) ?? hits.value[0];
+  return cur ? cur.assetId : 0;
+}
+function fmtDate(iso: string | null): string { return iso ? iso.slice(0, 10) : ''; }
+function fmtHM(iso: string | null): string { return iso ? iso.slice(11, 16) : ''; }
+function fmtFull(iso: string | null): string { return iso ? iso.replace('T', ' ').slice(0, 19) : '-'; }
+
+// 列表拖拽调宽
+const listW = ref(380);
+let resizing = false;
+function startResize(e: MouseEvent) {
+  resizing = true;
+  e.preventDefault();
+}
+function onMove(e: MouseEvent) {
+  if (!resizing) return;
+  listW.value = Math.min(680, Math.max(260, e.clientX - 232)); // 232 = 侧栏宽 + 容器起点
+}
+function stopResize() { resizing = false; }
+onMounted(() => {
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', stopResize);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onMove);
+  window.removeEventListener('mouseup', stopResize);
+});
 
 onMounted(async () => {
   await loadSessions();
@@ -79,108 +131,204 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page-head">
-    <div>
-      <h2>会话</h2>
-      <div class="dim small">按工具浏览历史会话 · 支持跨工具全文搜索</div>
-    </div>
-    <n-input v-model:value="q" placeholder="搜索会话内容…（Enter）" size="small" style="width:280px" round clearable @keydown.enter="doSearch" />
-  </div>
-
-  <div class="cols">
-    <!-- 栏1：工具卡片 -->
-    <div class="tools">
-      <div class="tool-card card" :class="{ sel: activeTool === null }" @click="activeTool = null; doSearch()">
-        <div class="tool-logo all">⌕</div>
-        <div class="tool-meta">
-          <div class="tool-name">跨工具搜索</div>
-          <div class="dim small">{{ q.trim() ? `「${q.trim()}」` : '输入关键词，搜全部工具' }}</div>
-        </div>
-      </div>
-      <div
-        v-for="t in TOOLS" :key="t.id"
-        class="tool-card card" :class="{ sel: activeTool === t.id }" @click="selectTool(t.id)"
+  <div class="page">
+    <!-- 顶部 52px 工具 Tab 栏 -->
+    <div class="toolbar glassbar">
+      <button class="tab" :class="{ on: activeTool === null }" @click="selectTool(null)">
+        <span class="tab-dot" style="background:#8e8e93;color:#fff">A</span>
+        <span class="tab-name">全部工具</span>
+        <span class="tab-n">{{ totalCount }}</span>
+      </button>
+      <button
+        v-for="t in TOOLS" :key="t.id" class="tab" :class="{ on: activeTool === t.id }" @click="selectTool(t.id)"
       >
-        <img v-if="t.logo" class="tool-logo" :src="t.logo" :alt="t.name">
-        <div v-else class="tool-logo" :style="{ background: t.color }">W</div>
-        <div class="tool-meta">
-          <div class="tool-name">{{ t.name }}</div>
-          <div class="dim small">
-            {{ toolStats.get(t.id)?.count ?? 0 }} 个会话<template v-if="toolStats.get(t.id)?.latest"> · 最近 {{ fmtTime(toolStats.get(t.id)?.latest) }}</template>
+        <img v-if="t.logo" class="tab-logo" :src="t.logo" :alt="t.name">
+        <span v-else class="tab-dot" :style="{ background: t.color }">{{ t.letter }}</span>
+        <span class="tab-name">{{ t.name }}</span>
+        <span class="tab-n">{{ toolStats.get(t.id)?.count ?? 0 }}</span>
+      </button>
+      <span class="flex1" />
+      <n-input v-model:value="globalQ" placeholder="全局搜索（跨工具，Enter）" size="small" round clearable style="width:300px" @keydown.enter="globalSearch" />
+    </div>
+
+    <div class="body">
+      <!-- 会话列表（可拖宽） -->
+      <div class="list card" :style="{ width: listW + 'px' }">
+        <div class="list-head">
+          <strong class="small">{{ listTitle }}</strong>
+          <span class="dim small">最近更新</span>
+        </div>
+        <div class="list-search">
+          <n-input v-model:value="listQ" placeholder="搜索当前列表…" size="small" round clearable />
+        </div>
+        <div class="list-scroll">
+          <div v-for="(h, i) in listFiltered" :key="i" class="s-item" :class="{ sel: curKey === h.assetId + '|' + (h.subId ?? '') }" @click="openAsset(h)">
+            <div class="s-top">
+              <span class="dim small">{{ fmtDate(h.time) }}</span>
+              <span class="dim small">{{ fmtHM(h.time) }}</span>
+            </div>
+            <div class="s-title">{{ h.title }}</div>
+            <div class="dim small">{{ h.model ?? '未知模型' }}<template v-if="h.messageCount"> · {{ h.messageCount }} 条消息</template></div>
+            <div class="dim small s-path">{{ h.projectPath ?? h.path }}</div>
           </div>
+          <n-empty :description="listQ ? '没有匹配的会话' : '选择上方工具查看会话'" size="small" style="padding:36px 0" />
         </div>
       </div>
-    </div>
+      <div class="resizer" title="拖动调整宽度" @mousedown="startResize" />
 
-    <!-- 栏2：会话列表 -->
-    <div class="list">
-      <div class="dim small list-title">{{ listTitle }}</div>
-      <div v-if="!hits.length" class="card" style="padding:0">
-        <n-empty :description="q.trim() ? '没有匹配的结果' : '选择一个工具查看会话'" style="padding:50px 0" />
+      <!-- 详情 -->
+      <div class="detail card">
+        <template v-if="readMeta">
+          <div class="d-head">
+            <div class="d-title">{{ readMeta.title }}</div>
+            <div class="d-tags">
+              <n-tag size="tiny" :bordered="false" round type="primary">{{ TOOLS.find((t) => t.id === readMeta.tool)?.name ?? readMeta.tool }}</n-tag>
+              <n-tag v-if="readMeta.meta?.model" size="tiny" :bordered="false" round>{{ readMeta.meta.model }}</n-tag>
+              <n-tag v-if="msgs.length" size="tiny" :bordered="false" round>{{ msgs.length }} 条消息</n-tag>
+              <n-tag v-if="readMeta.meta?.startedAt" size="tiny" :bordered="false" round>{{ fmtFull(readMeta.meta.startedAt) }}</n-tag>
+            </div>
+            <div class="d-actions">
+              <n-button size="tiny" round quaternary title="复制标题">⧉</n-button>
+              <n-button size="tiny" round quaternary title="回到顶部">↑</n-button>
+              <n-button size="tiny" round quaternary title="更多">…</n-button>
+            </div>
+          </div>
+          <div class="d-tabs glassbar">
+            <button v-for="t in [
+              { k: 'msgs', label: '消息' }, { k: 'overview', label: '概览' }, { k: 'tools', label: 'Tools' },
+              { k: 'files', label: 'Files' }, { k: 'system', label: 'System' }, { k: 'raw', label: 'Raw' },
+            ]" :key="t.k" class="d-tab" :class="{ on: detailTab === t.k }"
+              @click="detailTab = t.k; if (t.k === 'raw' && rawText === null) loadRaw()">
+              {{ t.label }}
+            </button>
+          </div>
+          <div class="d-body">
+            <!-- 消息 -->
+            <template v-if="detailTab === 'msgs'">
+              <div v-for="(m, i) in visibleMsgs" :key="i" class="msg-block">
+                <div class="who">{{ roleLabel[m.role ?? ''] ?? m.role ?? '未知' }}<template v-if="m.ts"> · {{ fmtFull(m.ts) }}</template></div>
+                <div class="msg" :class="m.role || 'assistant'">{{ m.text }}</div>
+              </div>
+            </template>
+            <!-- 概览 -->
+            <div v-else-if="detailTab === 'overview'" class="overview">
+              <div class="ov-grid">
+                <div class="ov-item" v-for="f in [
+                  ['模型', readMeta.meta?.model ?? '-'], ['项目', readMeta.meta?.projectPath ?? '-'],
+                  ['开始时间', fmtFull(readMeta.meta?.startedAt ?? null)], ['消息数', String(msgs.length)],
+                  ['会话 ID', readMeta.meta?.subId ?? '-'], ['来源', TOOLS.find((t) => t.id === readMeta.tool)?.name ?? readMeta.tool],
+                ]" :key="f[0]">
+                  <div class="dim small">{{ f[0] }}</div>
+                  <div class="mono small">{{ f[1] }}</div>
+                </div>
+              </div>
+              <div class="dim small" style="margin-top:14px">token 用量与耗时统计将随会话解析增强提供</div>
+            </div>
+            <!-- Tools -->
+            <div v-else-if="detailTab === 'tools'">
+              <div v-if="toolMsgs.length">
+                <div v-for="(m, i) in toolMsgs" :key="i" class="msg-block">
+                  <div class="who">工具 · {{ fmtFull(m.ts) }}</div>
+                  <div class="msg tool">{{ m.text }}</div>
+                </div>
+              </div>
+              <n-empty v-else description="本会话未解析到工具调用记录（结构化工具调用解析将随会话解析增强提供）" style="padding:60px 0" />
+            </div>
+            <!-- Files -->
+            <div v-else-if="detailTab === 'files'" class="overview">
+              <div class="ov-item">
+                <div class="dim small">项目路径</div>
+                <div class="mono small">{{ readMeta.meta?.projectPath ?? '（未记录）' }}</div>
+              </div>
+              <n-empty description="文件级变更追踪将在后续版本提供（数据源为各工具的 edit 记录）" style="padding:40px 0" />
+            </div>
+            <!-- System -->
+            <div v-else-if="detailTab === 'system'">
+              <div v-if="systemMsgs.length">
+                <div v-for="(m, i) in systemMsgs" :key="i" class="msg-block">
+                  <div class="who">{{ roleLabel[m.role ?? ''] ?? m.role }} · {{ fmtFull(m.ts) }}</div>
+                  <div class="msg developer">{{ m.text }}</div>
+                </div>
+              </div>
+              <n-empty v-else description="本会话没有系统注入消息" style="padding:60px 0" />
+            </div>
+            <!-- Raw -->
+            <div v-else-if="detailTab === 'raw'">
+              <div v-if="rawLoading" class="dim small" style="padding:20px">加载中…</div>
+              <pre v-else-if="rawText !== null" class="raw">{{ rawText }}</pre>
+              <n-empty v-else description="选择会话后加载原文" style="padding:60px 0" />
+            </div>
+          </div>
+        </template>
+        <n-empty v-else description="从左侧选择一个会话" style="margin:auto" />
       </div>
-      <div v-for="(h, i) in hits" :key="i" class="card item" @click="openAsset(h.assetId, h.subId)">
-        <div class="meta">
-          <n-tag v-if="!activeTool" size="tiny" :bordered="false" round>{{ h.tool }}</n-tag>
-          <span class="dim small">{{ h.time ? fmtTime(h.time) : '' }}</span>
-        </div>
-        <div class="title">{{ h.title }}</div>
-        <div class="sub dim small mono">{{ h.snippet }}</div>
-        <div v-if="h.snippet" class="snip dim" v-html="h.snippet"></div>
-      </div>
-    </div>
-
-    <!-- 栏3：阅读器 -->
-    <div class="reader">
-      <div v-if="!msgs.length" class="card" style="padding:0">
-        <n-empty description="选择会话阅读完整内容" style="padding:110px 0" />
-      </div>
-      <template v-else>
-        <div class="read-head glassbar small dim">{{ readTitle }} · 来源 {{ readTool }}</div>
-        <div v-for="(m, i) in msgs" :key="i" class="msg" :class="m.role || 'assistant'">
-          <div class="who">{{ roleLabel[m.role ?? ''] ?? m.role ?? '未知' }}<template v-if="m.ts"> · {{ m.ts.replace('T', ' ').slice(0, 19) }}</template></div>
-          <div class="body">{{ m.text }}</div>
-        </div>
-      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
-h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; }
-.cols { display: flex; gap: 16px; align-items: flex-start; }
-/* 栏1 */
-.tools { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
-.tool-card { display: flex; gap: 10px; align-items: center; padding: 11px 12px; cursor: pointer; transition: border-color .15s, transform .15s; }
-.tool-card:hover { border-color: var(--accent); transform: translateY(-1px); }
-.tool-card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0, 113, 227, .18); }
-.tool-logo {
-  width: 34px; height: 34px; border-radius: 9px; object-fit: contain;
-  background: #fff; border: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-weight: 700; font-size: 15px; flex-shrink: 0;
+.page { margin: -24px -40px -56px; }
+/* 52px Tab 栏 */
+.toolbar {
+  height: 52px; display: flex; gap: 6px; align-items: center;
+  padding: 0 14px; position: sticky; top: 0; z-index: 20;
 }
-.tool-logo.all { background: var(--bg); color: var(--accent); font-size: 18px; border: 1px dashed var(--border); }
-.tool-name { font-weight: 600; font-size: 13px; }
-.tool-meta { min-width: 0; }
-/* 栏2 */
-.list { width: clamp(360px, 26vw, 460px); flex-shrink: 0; max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 2px; }
-.list-title { font-weight: 600; padding: 2px 4px 8px; }
-.item { padding: 11px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s, transform .15s; }
-.item:hover { border-color: var(--accent); transform: translateY(-1px); }
-.meta { display: flex; gap: 8px; align-items: center; }
-.title { font-weight: 600; margin: 4px 0 2px; font-size: 13.5px; }
-.sub { font-size: 11px; }
-.snip { font-size: 12px; margin-top: 4px; }
-.snip :deep(mark) { background: rgba(0, 113, 227, .15); color: var(--accent); border-radius: 3px; padding: 0 2px; }
-/* 栏3 */
-.reader { flex: 1; min-width: 0; max-height: calc(100vh - 170px); overflow-y: auto; padding: 0 8px; }
-.read-head { position: sticky; top: 0; z-index: 5; padding: 8px 14px; margin-bottom: 12px; border-radius: 10px; }
-.msg { border-radius: 16px; padding: 12px 16px; margin-bottom: 14px; max-width: 860px; margin-left: auto; margin-right: auto; white-space: pre-wrap; word-break: break-word; }
-.msg.user { margin-left: auto; margin-right: 0; max-width: min(860px, 80%); }
-.msg.developer, .msg.system { margin-right: auto; margin-left: 0; max-width: min(860px, 85%); }
-.msg .who { font-size: 11.5px; color: var(--dim); margin-bottom: 4px; font-weight: 600; }
-.msg.user { background: rgba(0, 113, 227, .1); border: 1px solid rgba(0, 113, 227, .16); margin-left: 40px; }
+.tab {
+  display: flex; gap: 7px; align-items: center; height: 36px;
+  background: transparent; border: none; border-radius: 9px;
+  padding: 0 12px; cursor: pointer; color: var(--text); font-size: 13px; font-weight: 500;
+}
+.tab:hover { background: rgba(0, 0, 0, .05); }
+.tab.on { background: var(--accent); color: #fff; }
+.tab-logo { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; background: #fff; }
+.tab-dot {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff;
+}
+.tab-n { color: var(--dim); font-size: 12px; }
+.tab.on .tab-n { color: rgba(255, 255, 255, .8); }
+.flex1 { flex: 1; }
+/* 三区 */
+.body { display: flex; gap: 0; align-items: stretch; height: calc(100vh - 52px - 2px); }
+.list { flex-shrink: 0; display: flex; flex-direction: column; border-radius: 0; border: none; border-right: 1px solid var(--border); box-shadow: none; overflow: hidden; }
+.list-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px 4px; }
+.list-search { padding: 6px 14px 10px; border-bottom: 1px solid var(--border); }
+.list-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+.s-item { border-radius: 10px; padding: 9px 11px; cursor: pointer; margin-bottom: 2px; }
+.s-item:hover { background: var(--bg); }
+.s-item.sel { background: rgba(0, 113, 227, .1); outline: 1.5px solid var(--accent); }
+.s-top { display: flex; justify-content: space-between; font-size: 11.5px; }
+.s-title { font-weight: 600; font-size: 13px; margin: 2px 0; word-break: break-all; }
+.s-path { font-size: 11px; word-break: break-all; }
+.resizer { width: 5px; cursor: col-resize; flex-shrink: 0; background: transparent; }
+.resizer:hover, .resizer:active { background: rgba(0, 113, 227, .25); }
+/* 详情 */
+.detail { flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 0; border: none; box-shadow: none; overflow: hidden; }
+.d-head { display: flex; gap: 12px; align-items: center; padding: 12px 18px 8px; }
+.d-title { font-size: 17px; font-weight: 700; flex: 1; min-width: 0; word-break: break-all; }
+.d-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.d-actions { display: flex; gap: 2px; }
+.d-tabs { display: flex; gap: 2px; padding: 0 14px; position: sticky; top: 0; z-index: 10; }
+.d-tab {
+  background: transparent; border: none; padding: 8px 14px; cursor: pointer;
+  font-size: 13px; color: var(--dim); border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent;
+}
+.d-tab:hover { color: var(--text); }
+.d-tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.d-body { flex: 1; overflow-y: auto; padding: 16px 22px 40px; }
+/* 消息 */
+.msg-block { margin-bottom: 16px; }
+.who { font-size: 11.5px; color: var(--dim); font-weight: 600; margin-bottom: 5px; letter-spacing: .4px; }
+.msg { border-radius: 12px; padding: 11px 15px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
+.msg.user { background: rgba(0, 113, 227, .09); border: 1px solid rgba(0, 113, 227, .15); }
 .msg.assistant { background: var(--card-solid); border: 1px solid var(--border); box-shadow: var(--shadow); }
-.msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 13px; margin-right: 40px; }
+.msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 12.5px; }
+.msg.tool { background: #fffbe8; border: 1px solid #f0e2ac; font-size: 12.5px; }
+/* 概览 */
+.overview { max-width: 720px; }
+.ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+.ov-item { background: var(--bg); border-radius: 10px; padding: 10px 14px; }
+.ov-item .mono { margin-top: 2px; word-break: break-all; }
+.raw { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font: 11.5px/1.5 "SF Mono",ui-monospace,Consolas,monospace; white-space: pre; overflow: auto; max-height: calc(100vh - 300px); margin: 0; }
 </style>
