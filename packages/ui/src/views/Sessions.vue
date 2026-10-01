@@ -88,6 +88,25 @@ function copyMsg(text: string) {
   navigator.clipboard?.writeText(text).catch(function () { /* 剪贴板不可用时静默 */ });
 }
 
+/** 用户消息锚点导航：只定位真实用户输入（排除环境上下文/权限注入等 user 角色的系统块） */
+const isInjected = (t: string) =>
+  t.startsWith('<environment_context>') || t.startsWith('<permissions') || t.startsWith('<skills_');
+const userAnchors = computed(() =>
+  visibleMsgs.value
+    .map((m, i) => ({ idx: i, ts: m.ts, text: m.text }))
+    .filter((x) => x.text && visibleMsgs.value[x.idx].role === 'user' && !isInjected(x.text)),
+);
+const activeAnchor = ref(-1);
+function jumpToUser(idx: number) {
+  activeAnchor.value = idx;
+  const el = document.getElementById('umsg-' + idx);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('anchor-flash');
+    setTimeout(function () { el.classList.remove('anchor-flash'); }, 1600);
+  }
+}
+
 async function loadSessions() {
   allSessions.value = ((await (await fetch('/api/list?sessions=1&limit=2000')).json()).hits ?? []) as Hit[];
 }
@@ -239,8 +258,12 @@ onMounted(async () => {
           </div>
           <div class="d-body">
             <!-- 消息 -->
-            <template v-if="detailTab === 'msgs'">
-              <div v-for="(m, i) in visibleMsgs" :key="i" class="msg-row">
+            <div v-if="detailTab === 'msgs'" class="msgs-wrap">
+              <div class="msgs-flow">
+                <div
+                  v-for="(m, i) in visibleMsgs" :key="i" class="msg-row"
+                  :id="m.role === 'user' ? 'umsg-' + i : undefined"
+                >
                 <div class="m-avatar" :style="{ background: (roleMeta[m.role ?? ''] ?? roleMeta.system).bg }">
                   <img
                     v-if="(roleMeta[m.role ?? ''] ?? roleMeta.system).icon === 'tool-logo' && toolLogo"
@@ -261,8 +284,22 @@ onMounted(async () => {
                     {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
                   </button>
                 </div>
+                </div>
               </div>
-            </template>
+              <!-- 用户消息锚点导航 -->
+              <aside v-if="userAnchors.length" class="anchor-nav">
+                <div class="dim small an-head">用户消息 · {{ userAnchors.length }}</div>
+                <button
+                  v-for="(a, i) in userAnchors" :key="i"
+                  class="an-item" :class="{ on: activeAnchor === a.idx }"
+                  :title="a.text.slice(0, 120)"
+                  @click="jumpToUser(a.idx)"
+                >
+                  <span class="an-idx">{{ i + 1 }}</span>
+                  <span class="an-text">{{ a.text.replace(/\s+/g, ' ').slice(0, 26) }}</span>
+                </button>
+              </aside>
+            </div>
             <!-- 概览 -->
             <div v-else-if="detailTab === 'overview'" class="overview">
               <div class="ov-grid">
@@ -402,6 +439,35 @@ onMounted(async () => {
   padding: 3px 14px; font-size: 12px; color: var(--accent); cursor: pointer; transition: all .15s;
 }
 .fold-btn:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+/* 用户消息锚点导航 */
+.msgs-wrap { display: flex; gap: 12px; align-items: flex-start; }
+.msgs-flow { flex: 1; min-width: 0; }
+.msg-row { scroll-margin-top: 64px; }
+.anchor-nav {
+  width: 190px; flex-shrink: 0; position: sticky; top: 6px;
+  max-height: calc(100vh - 340px); overflow-y: auto;
+  background: rgba(255, 255, 255, .82); backdrop-filter: blur(14px);
+  border: 1px solid var(--border); border-radius: 12px; padding: 8px;
+  box-shadow: var(--shadow);
+}
+.an-head { font-weight: 700; padding: 4px 8px 8px; }
+.an-item {
+  display: flex; gap: 7px; align-items: baseline; width: 100%;
+  background: transparent; border: none; border-radius: 8px;
+  padding: 5px 8px; cursor: pointer; text-align: left; font-size: 12px; color: var(--text);
+}
+.an-item:hover { background: var(--bg); }
+.an-item.on { background: rgba(0, 113, 227, .12); }
+.an-idx {
+  flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(0, 113, 227, .14); color: var(--accent);
+  font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+  align-self: center;
+}
+.an-item.on .an-idx { background: var(--accent); color: #fff; }
+.an-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 锚点定位闪烁 */
+.msg-row.anchor-flash .msg { outline: 2px solid var(--accent); border-radius: 12px; transition: outline-color 1s; }
 .msg.user { background: rgba(0, 113, 227, .09); border: 1px solid rgba(0, 113, 227, .15); }
 .msg.assistant { background: var(--card-solid); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 12.5px; }
