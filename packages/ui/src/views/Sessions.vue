@@ -4,6 +4,7 @@ import { NInput, NEmpty, NTag, NButton } from 'naive-ui';
 import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
+import zcodeLogo from '../assets/logos/zcode.png';
 
 interface Hit {
   assetId: number; subId: string; tool: string; kind: string; role: string | null;
@@ -16,7 +17,7 @@ interface ReadMeta { model: string | null; projectPath: string | null; startedAt
 const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具' };
 interface ToolDef { id: string; name: string; logo?: string; letter: string; color: string }
 const TOOLS: ToolDef[] = [
-  { id: 'zcode', name: 'ZCode', letter: 'Z', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
+  { id: 'zcode', name: 'ZCode', logo: zcodeLogo, letter: 'Z', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
   { id: 'codex', name: 'Codex CLI', logo: openaiLogo, letter: 'C', color: '#10a37f' },
   { id: 'cursor', name: 'Cursor', logo: cursorLogo, letter: 'C', color: '#111' },
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo, letter: 'O', color: '#111' },
