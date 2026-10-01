@@ -15,6 +15,19 @@ interface Msg { seq: number; role: string | null; ts: string | null; text: strin
 interface ReadMeta { model: string | null; projectPath: string | null; startedAt: string | null; messageCount: number | null; subId: string }
 
 const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具' };
+/** 角色头部样式元数据：头像类型与配色 */
+const roleMeta: Record<string, { bg: string; fg: string; icon: string }> = {
+  user: { bg: '#0071e3', fg: '#fff', icon: 'user' },
+  assistant: { bg: '#1d1d1f', fg: '#fff', icon: 'tool-logo' },
+  developer: { bg: '#e8e2f4', fg: '#5e5ce6', icon: 'gear' },
+  system: { bg: '#ececec', fg: '#6e6e73', icon: 'gear' },
+  tool: { bg: '#fff3d6', fg: '#b25000', icon: 'wrench' },
+};
+const SVG_ICONS: Record<string, string> = {
+  user: 'M12 12a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm0 2c-4 0-7.5 2-7.5 4.5V21h15v-2.5c0-2.5-3.5-4.5-7.5-4.5z',
+  gear: 'M12 8.5A3.5 3.5 0 1012 15.5 3.5 3.5 0 0012 8.5zm8.9 4.9l-1.8-1a6.9 6.9 0 000-2.8l1.8-1a1 1 0 00.4-1.3l-1.5-2.6a1 1 0 00-1.3-.4l-1.8 1a7 7 0 00-2.4-1.4V2a1 1 0 00-1-1h-3a1 1 0 00-1 1v1.9a7 7 0 00-2.4 1.4l-1.8-1a1 1 0 00-1.3.4L3.3 6.9a1 1 0 00.4 1.3l1.8 1a6.9 6.9 0 000 2.8l-1.8 1a1 1 0 00-.4 1.3l1.5 2.6a1 1 0 001.3.4l1.8-1a7 7 0 002.4 1.4V19a1 1 0 001 1h3a1 1 0 001-1v-1.9a7 7 0 002.4-1.4l1.8 1a1 1 0 001.3-.4l1.5-2.6a1 1 0 00-.4-1.3z',
+  wrench: 'M21.7 5.3l-4-4a1 1 0 00-1.4 0l-2.5 2.5a5.5 5.5 0 00-6.9 6.9L1.3 16.3a1 1 0 000 1.4l5 5a1 1 0 001.4 0l5.6-5.6a5.5 5.5 0 006.9-6.9l2.5-2.5a1 1 0 000-1.4zM7.5 19.1l-2.6-2.6 3-3 2.6 2.6z',
+};
 interface ToolDef { id: string; name: string; logo?: string; letter: string; color: string }
 const TOOLS: ToolDef[] = [
   { id: 'zcode', name: 'ZCode', logo: zcodeLogo, letter: 'Z', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
@@ -53,6 +66,10 @@ const listFiltered = computed(() => {
 const toolMsgs = computed(() => msgs.value.filter((m) => m.role === 'tool'));
 const systemMsgs = computed(() => msgs.value.filter((m) => m.role === 'developer' || m.role === 'system'));
 const visibleMsgs = computed(() => msgs.value.filter((m) => m.role !== 'tool'));
+const toolLogo = computed(() => TOOLS.find((t) => t.id === readMeta.value?.tool)?.logo);
+function copyMsg(text: string) {
+  navigator.clipboard?.writeText(text).catch(function () { /* 剪贴板不可用时静默 */ });
+}
 
 async function loadSessions() {
   allSessions.value = ((await (await fetch('/api/list?sessions=1&limit=2000')).json()).hits ?? []) as Hit[];
@@ -206,9 +223,24 @@ onMounted(async () => {
           <div class="d-body">
             <!-- 消息 -->
             <template v-if="detailTab === 'msgs'">
-              <div v-for="(m, i) in visibleMsgs" :key="i" class="msg-block">
-                <div class="who">{{ roleLabel[m.role ?? ''] ?? m.role ?? '未知' }}<template v-if="m.ts"> · {{ fmtFull(m.ts) }}</template></div>
-                <div class="msg" :class="m.role || 'assistant'">{{ m.text }}</div>
+              <div v-for="(m, i) in visibleMsgs" :key="i" class="msg-row">
+                <div class="m-avatar" :style="{ background: (roleMeta[m.role ?? ''] ?? roleMeta.system).bg }">
+                  <img
+                    v-if="(roleMeta[m.role ?? ''] ?? roleMeta.system).icon === 'tool-logo' && toolLogo"
+                    :src="toolLogo" alt=""
+                  >
+                  <svg v-else viewBox="0 0 24 24" width="13" height="13">
+                    <path :d="SVG_ICONS[(roleMeta[m.role ?? ''] ?? roleMeta.system).icon]" :fill="(roleMeta[m.role ?? ''] ?? roleMeta.system).fg" />
+                  </svg>
+                </div>
+                <div class="m-main">
+                  <div class="m-head">
+                    <span class="m-name">{{ roleLabel[m.role ?? ''] ?? m.role ?? '未知' }}</span>
+                    <span v-if="m.ts" class="dim small m-time">{{ fmtFull(m.ts) }}</span>
+                    <span class="m-copy" title="复制内容" @click="copyMsg(m.text)">⧉</span>
+                  </div>
+                  <div class="msg" :class="m.role || 'assistant'">{{ m.text }}</div>
+                </div>
               </div>
             </template>
             <!-- 概览 -->
@@ -318,9 +350,24 @@ onMounted(async () => {
 .d-tab:hover { color: var(--text); }
 .d-tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .d-body { flex: 1; overflow-y: auto; padding: 16px 22px 40px; }
-/* 消息 */
-.msg-block { margin-bottom: 16px; }
-.who { font-size: 11.5px; color: var(--dim); font-weight: 600; margin-bottom: 5px; letter-spacing: .4px; }
+/* 消息行：头像 + 头部 + 气泡 */
+.msg-row { display: flex; gap: 11px; margin-bottom: 18px; }
+.m-avatar {
+  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0; margin-top: 2px;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+.m-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.m-main { flex: 1; min-width: 0; }
+.m-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px; }
+.m-name { font-size: 12.5px; font-weight: 700; letter-spacing: .3px; }
+.m-time { font-size: 11.5px; }
+.m-copy {
+  margin-left: auto; cursor: pointer; color: var(--dim); font-size: 12px;
+  opacity: 0; transition: opacity .12s; padding: 0 4px; border-radius: 4px;
+}
+.m-copy:hover { color: var(--accent); background: rgba(0, 113, 227, .08); }
+.msg-row:hover .m-copy { opacity: 1; }
 .msg { border-radius: 12px; padding: 11px 15px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
 .msg.user { background: rgba(0, 113, 227, .09); border: 1px solid rgba(0, 113, 227, .15); }
 .msg.assistant { background: var(--card-solid); border: 1px solid var(--border); box-shadow: var(--shadow); }
