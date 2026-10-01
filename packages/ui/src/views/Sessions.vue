@@ -5,7 +5,7 @@ import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 
-interface Hit { assetId: number; tool: string; kind: string; role: string | null; time: string | null; title: string; snippet: string; path: string }
+interface Hit { assetId: number; subId: string; tool: string; kind: string; role: string | null; time: string | null; title: string; snippet: string; path: string }
 interface Msg { seq: number; role: string | null; ts: string | null; text: string }
 
 const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统' };
@@ -56,10 +56,12 @@ async function doSearch() {
   const d = await (await fetch('/api/list?' + p)).json();
   hits.value = d.hits ?? [];
 }
-async function openAsset(id: number) {
+async function openAsset(id: number, subId?: string) {
   msgs.value = [];
   readTitle.value = '加载中…';
-  const d = await (await fetch('/api/read?asset=' + id)).json();
+  const p = new URLSearchParams({ asset: String(id) });
+  if (subId) p.set('sub', subId);
+  const d = await (await fetch('/api/read?' + p)).json();
   readTool.value = d.tool ?? '';
   readTitle.value = (d.title ?? d.path ?? '') + (d.messages?.length ? ` · ${d.messages.length} 条消息` : '');
   msgs.value = d.messages ?? [];
@@ -116,7 +118,7 @@ onMounted(async () => {
       <div v-if="!hits.length" class="card" style="padding:0">
         <n-empty :description="q.trim() ? '没有匹配的结果' : '选择一个工具查看会话'" style="padding:50px 0" />
       </div>
-      <div v-for="(h, i) in hits" :key="i" class="card item" @click="openAsset(h.assetId)">
+      <div v-for="(h, i) in hits" :key="i" class="card item" @click="openAsset(h.assetId, h.subId)">
         <div class="meta">
           <n-tag v-if="!activeTool" size="tiny" :bordered="false" round>{{ h.tool }}</n-tag>
           <span class="dim small">{{ h.time ? fmtTime(h.time) : '' }}</span>

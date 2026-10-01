@@ -131,7 +131,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
           const rows = store.listSessions({ tool, limit: Number(url.searchParams.get('limit')) || 80 });
           json(res, {
             hits: rows.map((s) => ({
-              assetId: s.assetId, tool: s.tool, kind: 'session', role: null,
+              assetId: s.assetId, subId: s.subId, tool: s.tool, kind: 'session', role: null,
               time: s.startedAt, title: s.title ?? '(无标题)', path: s.assetPath, snippet: `${s.model ?? ''} ${s.projectPath ?? ''}`.trim(),
             })),
           });
@@ -144,7 +144,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
         const hits = store.search(q, { tool, limit: 60 });
         json(res, {
           hits: hits.map((h) => ({
-            assetId: h.assetId, tool: h.tool, kind: h.kind, role: h.role,
+            assetId: h.assetId, subId: h.subId, tool: h.tool, kind: h.kind, role: h.role,
             time: null, title: h.sessionTitle ?? h.assetName ?? h.path, snippet: h.snippet, path: h.path,
           })),
         });
@@ -200,7 +200,11 @@ export async function cmdServe(rest: string[]): Promise<void> {
           json(res, { error: 'asset not found' });
           return;
         }
-        const title = store.listSessions({ tool: asset.tool, limit: 1000 }).find((s) => s.assetId === asset.id)?.title ?? null;
+        // 多会话容器（如 ZCode/opencode 的 db.sqlite）：?sub=<subId> 精确选取会话；
+        // 未传时回退容器内第一个会话（单会话文件如 Codex rollout 即此形态）
+        const subParam = url.searchParams.get('sub');
+        const sessMeta = store.listSessions({ tool: asset.tool, limit: 1000 });
+        const title = sessMeta.find((s) => s.assetId === asset.id && (!subParam || s.subId === subParam))?.title ?? null;
         let messages: ApiDoc[] = [];
         const adapter = adapters.find((a) => a.id === asset.tool);
         if (adapter?.parse && asset.contentHash && cas.has(asset.contentHash)) {
@@ -210,10 +214,10 @@ export async function cmdServe(rest: string[]): Promise<void> {
             'read',
           );
           if (result) {
-            const subId = result.sessions[0]?.subId;
+            const wanted = subParam ?? result.sessions[0]?.subId;
             messages = result.docs
               .filter((d) => d.docType !== 'session_title')
-              .filter((d) => !d.subId || !subId || d.subId === subId)
+              .filter((d) => !wanted || !d.subId || d.subId === wanted)
               .sort((a, b) => a.seq - b.seq)
               .slice(0, 500)
               .map((d) => ({ seq: d.seq, role: d.role ?? null, ts: d.ts ?? null, text: d.text }));
