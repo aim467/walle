@@ -124,7 +124,7 @@ onMounted(async () => {
           <span class="dim small">{{ h.time ? fmtTime(h.time) : '' }}</span>
         </div>
         <div class="title">{{ h.title }}</div>
-        <div class="sub dim small mono">{{ h.path.split('/').pop() === h.path ? h.path.split('\\').slice(-1)[0] : h.path.split(/[\\/]/).slice(-2, -1)[0] }}</div>
+        <div class="sub dim small mono">{{ h.snippet }}</div>
         <div v-if="h.snippet" class="snip dim" v-html="h.snippet"></div>
       </div>
     </div>
@@ -148,9 +148,9 @@ onMounted(async () => {
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
 h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; }
-.cols { display: flex; gap: 14px; align-items: flex-start; }
+.cols { display: flex; gap: 16px; align-items: flex-start; }
 /* 栏1 */
-.tools { width: 208px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+.tools { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
 .tool-card { display: flex; gap: 10px; align-items: center; padding: 11px 12px; cursor: pointer; transition: border-color .15s, transform .15s; }
 .tool-card:hover { border-color: var(--accent); transform: translateY(-1px); }
 .tool-card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0, 113, 227, .18); }
@@ -164,7 +164,7 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; }
 .tool-name { font-weight: 600; font-size: 13px; }
 .tool-meta { min-width: 0; }
 /* 栏2 */
-.list { width: 380px; flex-shrink: 0; max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 2px; }
+.list { width: clamp(360px, 26vw, 460px); flex-shrink: 0; max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 2px; }
 .list-title { font-weight: 600; padding: 2px 4px 8px; }
 .item { padding: 11px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s, transform .15s; }
 .item:hover { border-color: var(--accent); transform: translateY(-1px); }
@@ -174,9 +174,11 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; }
 .snip { font-size: 12px; margin-top: 4px; }
 .snip :deep(mark) { background: rgba(0, 113, 227, .15); color: var(--accent); border-radius: 3px; padding: 0 2px; }
 /* 栏3 */
-.reader { flex: 1; min-width: 0; max-height: calc(100vh - 170px); overflow-y: auto; }
+.reader { flex: 1; min-width: 0; max-height: calc(100vh - 170px); overflow-y: auto; padding: 0 8px; }
 .read-head { position: sticky; top: 0; z-index: 5; padding: 8px 14px; margin-bottom: 12px; border-radius: 10px; }
-.msg { border-radius: 16px; padding: 12px 16px; margin-bottom: 14px; max-width: 860px; white-space: pre-wrap; word-break: break-word; }
+.msg { border-radius: 16px; padding: 12px 16px; margin-bottom: 14px; max-width: 860px; margin-left: auto; margin-right: auto; white-space: pre-wrap; word-break: break-word; }
+.msg.user { margin-left: auto; margin-right: 0; max-width: min(860px, 80%); }
+.msg.developer, .msg.system { margin-right: auto; margin-left: 0; max-width: min(860px, 85%); }
 .msg .who { font-size: 11.5px; color: var(--dim); margin-bottom: 4px; font-weight: 600; }
 .msg.user { background: rgba(0, 113, 227, .1); border: 1px solid rgba(0, 113, 227, .16); margin-left: 40px; }
 .msg.assistant { background: var(--card-solid); border: 1px solid var(--border); box-shadow: var(--shadow); }

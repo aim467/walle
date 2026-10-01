@@ -104,5 +104,5 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item.active svg { color: #fff; }
 .sidebar-foot { margin-top: auto; padding: 10px 12px; font-size: 11px; line-height: 1.8; }
 .content { flex: 1; min-width: 0; }
-main { padding: 24px 32px 48px; max-width: 1180px; margin: 0 auto; }
+main { padding: 24px 40px 56px; max-width: 1680px; margin: 0 auto; width: 100%; }
 </style>
