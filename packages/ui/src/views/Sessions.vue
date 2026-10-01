@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue';
 import { NInput, NEmpty, NTag, NButton } from 'naive-ui';
 import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
@@ -63,6 +63,23 @@ const listFiltered = computed(() => {
   const s = listQ.value.toLowerCase();
   return hits.value.filter((h) => (h.title ?? '').toLowerCase().includes(s) || (h.projectPath ?? '').toLowerCase().includes(s) || (h.model ?? '').toLowerCase().includes(s));
 });
+const FOLD_CHARS = 2048;
+/** 超长消息折叠状态（按消息对象弱引用，切换会话自动失效） */
+const expandedMsgs = reactive(new WeakSet<Msg>());
+const isLongMsg = (m: Msg) => m.text.length > FOLD_CHARS;
+const isCollapsed = (m: Msg) => isLongMsg(m) && !expandedMsgs.has(m);
+function toggleMsg(m: Msg) {
+  if (expandedMsgs.has(m)) expandedMsgs.delete(m);
+  else expandedMsgs.add(m);
+}
+function clipText(m: Msg) {
+  // 折叠时截到最近的换行，避免半行割裂
+  let cut = m.text.slice(0, FOLD_CHARS);
+  const nl = cut.lastIndexOf('\n');
+  if (nl > FOLD_CHARS * 0.7) cut = cut.slice(0, nl);
+  return cut;
+}
+
 const toolMsgs = computed(() => msgs.value.filter((m) => m.role === 'tool'));
 const systemMsgs = computed(() => msgs.value.filter((m) => m.role === 'developer' || m.role === 'system'));
 const visibleMsgs = computed(() => msgs.value.filter((m) => m.role !== 'tool'));
@@ -239,7 +256,10 @@ onMounted(async () => {
                     <span v-if="m.ts" class="dim small m-time">{{ fmtFull(m.ts) }}</span>
                     <span class="m-copy" title="复制内容" @click="copyMsg(m.text)">⧉</span>
                   </div>
-                  <div class="msg" :class="m.role || 'assistant'">{{ m.text }}</div>
+                  <div class="msg" :class="[m.role || 'assistant', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
+                  <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
+                    {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
+                  </button>
                 </div>
               </div>
             </template>
@@ -262,7 +282,10 @@ onMounted(async () => {
               <div v-if="toolMsgs.length">
                 <div v-for="(m, i) in toolMsgs" :key="i" class="msg-block">
                   <div class="who">工具 · {{ fmtFull(m.ts) }}</div>
-                  <div class="msg tool">{{ m.text }}</div>
+                  <div class="msg" :class="['tool', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
+                  <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
+                    {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
+                  </button>
                 </div>
               </div>
               <n-empty v-else description="本会话未解析到工具调用记录（结构化工具调用解析将随会话解析增强提供）" style="padding:60px 0" />
@@ -280,7 +303,10 @@ onMounted(async () => {
               <div v-if="systemMsgs.length">
                 <div v-for="(m, i) in systemMsgs" :key="i" class="msg-block">
                   <div class="who">{{ roleLabel[m.role ?? ''] ?? m.role }} · {{ fmtFull(m.ts) }}</div>
-                  <div class="msg developer">{{ m.text }}</div>
+                  <div class="msg" :class="['developer', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
+                  <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
+                    {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
+                  </button>
                 </div>
               </div>
               <n-empty v-else description="本会话没有系统注入消息" style="padding:60px 0" />
@@ -368,7 +394,14 @@ onMounted(async () => {
 }
 .m-copy:hover { color: var(--accent); background: rgba(0, 113, 227, .08); }
 .msg-row:hover .m-copy { opacity: 1; }
-.msg { border-radius: 12px; padding: 11px 15px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
+.msg { border-radius: 12px; padding: 11px 15px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; position: relative; overflow: hidden; }
+.msg.clamped { -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 99%); mask-image: linear-gradient(to bottom, #000 78%, transparent 99%); max-height: 560px; }
+.fold-btn {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
+  background: var(--card-solid); border: 1px solid var(--border); border-radius: 100px;
+  padding: 3px 14px; font-size: 12px; color: var(--accent); cursor: pointer; transition: all .15s;
+}
+.fold-btn:hover { border-color: var(--accent); box-shadow: var(--shadow); }
 .msg.user { background: rgba(0, 113, 227, .09); border: 1px solid rgba(0, 113, 227, .15); }
 .msg.assistant { background: var(--card-solid); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 12.5px; }
