@@ -95,6 +95,18 @@ export interface ListFilter {
   limit?: number;
 }
 
+/** 增量比对用的既有资产快照（含元数据，供适配器改 kind/name 后纠正旧行） */
+export interface ActiveAsset {
+  id: number;
+  kind: AssetKind;
+  name: string | null;
+  rawFormat: string | null;
+  contentHash: string | null;
+  size: number | null;
+  mtime: string | null;
+  status: string;
+}
+
 const ASSET_SELECT = `
   SELECT a.id, a.source_id, s.tool, a.kind, a.name, a.path, a.raw_format, a.content_hash,
          a.size, a.mtime, a.sensitive, a.status, a.first_seen_at, a.last_seen_at
@@ -178,21 +190,37 @@ export class WalleStore {
   }
 
   /** 当前未删除资产（含失踪——回归时需复活）：path -> 关键字段（用于增量比对） */
-  getActiveAssets(sourceId: number): Map<string, { id: number; contentHash: string | null; size: number | null; mtime: string | null }> {
+  getActiveAssets(sourceId: number): Map<string, ActiveAsset> {
     const rows = this.db
-      .prepare("SELECT id, path, content_hash, size, mtime FROM asset WHERE source_id = ? AND status IN ('active', 'missing')")
+      .prepare(
+        "SELECT id, path, kind, name, raw_format, content_hash, size, mtime, status FROM asset WHERE source_id = ? AND status IN ('active', 'missing')",
+      )
       .all(sourceId) as unknown[];
-    const map = new Map<string, { id: number; contentHash: string | null; size: number | null; mtime: string | null }>();
+    const map = new Map<string, ActiveAsset>();
     for (const raw of rows) {
       const r = toRow(raw);
       map.set(String(r.path), {
         id: num(r.id),
+        kind: String(r.kind) as AssetKind,
+        name: str(r.name),
+        rawFormat: str(r.raw_format),
         contentHash: str(r.content_hash),
         size: r.size == null ? null : num(r.size),
         mtime: str(r.mtime),
+        status: String(r.status),
       });
     }
     return map;
+  }
+
+  /**
+   * 仅刷新元数据（kind / name / raw_format），内容未变时不重哈希、不留快照。
+   * 同时把失踪资产复活为 active —— 适配器改了 kind/name 语义后，旧行需要能被纠正。
+   */
+  updateAssetMeta(id: number, raw: RawAsset, now: string): void {
+    this.db
+      .prepare("UPDATE asset SET kind = ?, name = ?, raw_format = ?, last_seen_at = ?, status = 'active' WHERE id = ?")
+      .run(raw.kind, raw.name ?? null, raw.rawFormat, now, id);
   }
 
   insertAsset(sourceId: number, raw: RawAsset, contentHash: string | null, now: string): number {

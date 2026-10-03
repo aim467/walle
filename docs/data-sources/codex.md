@@ -23,7 +23,7 @@
 | `memories_1.sqlite` | memory | SQLite | 中 | 记忆库：`stage1_outputs`（thread_id, raw_memory, rollout_summary…）+ jobs 队列。**本机 0 行**（记忆管线未产出），读取需容忍空库 |
 | `goals_1.sqlite` | other | SQLite | 低 | thread_goals（本机 0 行） |
 | `queue_1.sqlite` / `logs_2.sqlite` | other | SQLite | 极高 | 内部队列 / 日志库。**logs_2.sqlite 高达 117MB 且 WAL 活跃写入** |
-| `skills/` | skill | 目录 | 低 | 本机为空目录，glob 匹配 `skills/**` 即可 |
+| `skills/<name>/SKILL.md` | skill | Markdown | 低 | 系统技能在 `skills/.system/<name>/` 下（多一层）。**每个技能目录只收 `SKILL.md` 一个资产**，附属 `scripts/`、`references/`、`assets/`、`agents/`、`LICENSE.txt` 与 `skills/.system/.codex-system-skills.marker` 不入资产库；技能名取 `SKILL.md` 的父目录名（对齐 cursor/workbuddy 粒度） |
 | `rules/default.rules` | rule | 文本 | 低 | 全局规则 |
 | `version.json` / `installation_id` / `cap_sid` | other | 文本 | 极低 | 版本与安装标识 |
 | `cc-switch-model-catalog.json` | other | JSON | 低 | cc-switch 的模型目录（280KB），佐证本机装了 cc-switch |

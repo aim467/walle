@@ -98,12 +98,15 @@ export const codexAdapter: Adapter = {
       if (a) yield a;
     }
 
-    // 4. skills / rules
+    // 4. skills：每个技能目录的 SKILL.md 为一个资产（与 cursor/workbuddy 对齐，附属文件不入库）
+    //    技能名取 SKILL.md 的父目录名——codex 系统技能多一层 `.system/`，不能用 rel 首段。
     for (const f of walkFiles(root, 'skills', { ignoreDirNames: IGNORE_DIRS })) {
-      if (isSidecarOrLog(path.basename(f.abs))) continue;
-      const a = statAsset(root, toRel(root, f.abs), 'skill', 'text', { name: path.basename(f.abs) });
+      if (path.basename(f.rel) !== 'SKILL.md') continue;
+      const skillName = path.basename(path.dirname(f.abs));
+      const a = statAsset(root, toRel(root, f.abs), 'skill', 'markdown', { name: skillName });
       if (a) yield a;
     }
+    // 5. rules
     for (const f of walkFiles(root, 'rules', { ignoreDirNames: IGNORE_DIRS })) {
       if (isSidecarOrLog(path.basename(f.abs))) continue;
       const a = statAsset(root, toRel(root, f.abs), 'rule', 'text', { name: path.basename(f.abs) });

@@ -26,6 +26,7 @@ const roots = {
   zcode: path.join(fixtures, 'zcode'),
   cursor: path.join(fixtures, 'cursor'),
   opencode: path.join(fixtures, 'opencode'),
+  workbuddy: path.join(fixtures, 'workbuddy'),
 };
 
 test('敏感工具函数', () => {
@@ -64,6 +65,23 @@ test('首次扫描：两源均产出资产，凭证被标记', async () => {
   assert.ok(mem, 'zcode 记忆文件应入库');
 });
 
+test('codex skill 粒度：每技能一个资产，附属文件不入库', () => {
+  const all = store.listAssets({ tool: 'codex', limit: 500 });
+  const skills = all.filter((a) => a.kind === 'skill');
+  assert.equal(skills.length, 2, `codex 应产出 2 个 skill 资产，实际 ${skills.length}`);
+  assert.deepEqual(
+    skills.map((s) => s.name).sort(),
+    ['fixture-skill', 'user-skill'],
+    '技能名应取 SKILL.md 父目录名（`.system` 层级不参与命名）',
+  );
+  assert.ok(skills.every((s) => s.path.endsWith('/SKILL.md')), '只收 SKILL.md');
+  assert.ok(skills.every((s) => s.rawFormat === 'markdown'), 'skill 应为 markdown 格式（对齐 cursor/workbuddy）');
+  // 附属文件与系统 marker 不得成为资产
+  for (const frag of ['/scripts/', '/references/', '/assets/', '.codex-system-skills.marker']) {
+    assert.ok(!all.some((a) => a.path.includes(frag)), `${frag} 不应入库`);
+  }
+});
+
 test('重复扫描幂等：零新增、零更新', async () => {
   const objectsBefore = countObjects(cas);
   const results = await runScan(adapters, store, cas, { roots });
@@ -73,6 +91,51 @@ test('重复扫描幂等：零新增、零更新', async () => {
     assert.ok(r.unchanged > 0, `${r.tool} 应有未变资产`);
   }
   assert.equal(countObjects(cas), objectsBefore, '内容仓不应有新对象');
+});
+
+test('扫描纠正元数据漂移：内容未变也要更新 kind/name/raw_format', async () => {
+  const skill = store.listAssets({ tool: 'codex', kind: 'skill', limit: 10 }).find((a) => a.name === 'fixture-skill');
+  assert.ok(skill, '前置：codex fixture-skill 应存在');
+  // 模拟历史扫描写入的错误元数据（内容不变）
+  store.db.prepare("UPDATE asset SET kind = 'other', name = 'SKILL.md', raw_format = 'text' WHERE id = ?").run(skill.id);
+  assert.equal(store.listAssets({ tool: 'codex', kind: 'skill', limit: 10 }).some((a) => a.id === skill.id), false, '前置：已从 skill 列表消失');
+
+  const [r] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  assert.equal(r.new, 0, '不应新增');
+  assert.equal(r.updated, 1, '元数据漂移应计为 1 次更新');
+
+  const fixed = store.listAssets({ tool: 'codex', kind: 'skill', limit: 10 }).find((a) => a.path === skill.path);
+  assert.ok(fixed, '纠正后应重新出现在 skill 列表中');
+  assert.equal(fixed.id, skill.id, '应原地纠正，不产生重复行');
+  assert.equal(fixed.name, 'fixture-skill', 'name 应被纠正为技能目录名');
+  assert.equal(fixed.rawFormat, 'markdown', 'raw_format 应被纠正');
+  assert.equal(fixed.contentHash, skill.contentHash, '内容未变，哈希不应变化');
+
+  // 再扫一次应回到幂等
+  const [r2] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  assert.equal(r2.updated, 0, '纠正后应恢复幂等');
+});
+
+test('失踪资产原样回归：内容与 mtime 均相同也应复活', async () => {
+  const rel = 'rules/default.rules';
+  const abs = path.join(fixtures, 'codex', 'rules', 'default.rules');
+  const rules = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === rel);
+  assert.ok(rules, '前置：codex rules 应存在');
+  const buf = fs.readFileSync(abs);
+  const st = fs.statSync(abs);
+
+  fs.rmSync(abs);
+  const [r1] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  assert.equal(r1.missing, 1, 'rules 应标记失踪');
+
+  // 原样还原（模拟 git checkout / 备份还原：内容与 mtime 完全一致）
+  fs.writeFileSync(abs, buf);
+  fs.utimesSync(abs, st.atime, st.mtime);
+  const [r2] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  assert.equal(r2.missing, 0, '文件已回来，不应再次标记失踪');
+  const back = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === rel);
+  assert.ok(back, '复活后应回到 active 列表');
+  assert.equal(back.id, rules.id, '复活不应产生重复行');
 });
 
 test('删除文件后扫描：标记失踪', async () => {
@@ -93,6 +156,34 @@ test('四源扫描：cursor 与 opencode 均产出资产', async () => {
   assert.ok(all.some((a) => a.tool === 'cursor' && a.kind === 'skill'), 'cursor skill 应入库');
   assert.ok(all.some((a) => a.tool === 'opencode' && a.path === 'data:auth.json' && a.sensitive === 1), 'opencode auth.json 应标记 secret');
   assert.ok(all.some((a) => a.tool === 'opencode' && a.kind === 'session'), 'opencode.db 应作为会话资产入库');
+});
+
+test('五源扫描：workbuddy 产出资产并标记凭证', async () => {
+  await runScan(adapters, store, cas, { roots });
+  const all = store.listAssets({ limit: 1000 });
+  const wb = all.filter((a) => a.tool === 'workbuddy');
+  assert.ok(wb.length >= 12, `workbuddy 资产数 ${wb.length} 应 >= 12`);
+  assert.ok(wb.some((a) => a.path === 'settings.json' && a.kind === 'config'), 'workbuddy settings.json 应入库');
+  assert.ok(wb.some((a) => a.kind === 'mcp'), 'workbuddy mcp 配置应入库');
+  assert.ok(wb.some((a) => a.kind === 'skill' && a.path === 'skills/fixture-skill/SKILL.md'), 'workbuddy skill 应入库');
+  assert.ok(wb.some((a) => a.kind === 'memory' && a.path === 'USER.md'), 'workbuddy 身份文件应作为记忆入库');
+  assert.ok(wb.some((a) => a.kind === 'plugin'), 'workbuddy 插件应入库');
+
+  // 凭证：keyblob 与 connector master key
+  const keyblob = wb.find((a) => a.path === 'keyblob');
+  assert.ok(keyblob && keyblob.kind === 'secret' && keyblob.sensitive === 1, 'keyblob 应标记 secret');
+  const master = wb.find((a) => a.path.endsWith('.master.key'));
+  assert.ok(master && master.sensitive === 1, 'connector master key 应标记 secret');
+
+  // 插件只收在用版本（0.9.0 未标记 .in_use，应被跳过）
+  assert.ok(wb.some((a) => a.path.includes('fixture-plugin/1.0.0/.codebuddy-plugin/plugin.json')), '应取 .in_use 版本插件');
+  assert.ok(!wb.some((a) => a.path.includes('fixture-plugin/0.9.0/')), '未在用版本插件不应入库');
+});
+
+test('workbuddy 凭证永不入全文索引', () => {
+  const frag = 'connector-master-key'; // keyblob/master.key 内容片段
+  const hits = store.search(frag, { limit: 5 });
+  assert.equal(hits.length, 0, 'workbuddy 凭证片段不应被搜到');
 });
 
 test('构建索引 + 中文/英文搜索', () => {
@@ -136,6 +227,28 @@ test('会话清单：标题与来源富化', () => {
   const oc = rows.find((s) => s.tool === 'opencode');
   assert.ok(oc && oc.title === '语义检索工具可用性测试', 'opencode 会话标题应来自 db');
   assert.ok(rows.some((s) => s.tool === 'codex' && s.title), 'codex 会话应有标题（fixture 首条用户消息）');
+});
+
+test('workbuddy 会话：DB 标题合并 / ai-title 兜底 / 剥离注入块', () => {
+  const rows = store.listSessions({ limit: 200 });
+  const a = rows.find((s) => s.tool === 'workbuddy' && s.subId === '11111111-1111-4111-8111-111111111111');
+  assert.ok(a, 'workbuddy 会话 A 应入库');
+  assert.equal(a.title, 'WorkBuddy 数据库标题', 'workbuddy.db 标题应合并到会话资产');
+  assert.equal(a.model, 'fixture-model', 'workbuddy.db model 应合并');
+
+  const b = rows.find((s) => s.tool === 'workbuddy' && s.subId === '22222222-2222-4222-8222-222222222222');
+  assert.ok(b, 'workbuddy 会话 B 应入库');
+  assert.equal(b.title, 'JSONL 兜底标题', 'DB 无记录时应回退到 JSONL ai-title');
+
+  // 会话 A 内容：用户真实提问从 <user_query> 提取，注入块被剥离
+  const wb = adapters.find((x) => x.id === 'workbuddy');
+  const asset = store.listAssets({ tool: 'workbuddy', kind: 'session', limit: 20 }).find((x) => x.path.includes('11111111'));
+  const result = wb.parse(cas.pathFor(asset.contentHash), { kind: 'session', path: asset.path, tool: 'workbuddy' }, 'read');
+  assert.ok(result, 'workbuddy 会话应可解析');
+  const user = result.docs.find((d) => d.role === 'user');
+  assert.ok(user && user.text.includes('语义检索'), '应提取到用户真实提问');
+  assert.ok(!user.text.includes('system-reminder'), '注入块应被剥离');
+  assert.ok(result.docs.some((d) => d.role === 'assistant'), '应含助手回复');
 });
 
 test('read 模式解析：会话消息完整返回', () => {

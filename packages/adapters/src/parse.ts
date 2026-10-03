@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ParsedDoc, ParsedResult, SessionMetaRow, ParseMode } from '@walle/core';
 
@@ -7,6 +8,8 @@ import type { ParsedDoc, ParsedResult, SessionMetaRow, ParseMode } from '@walle/
  * - parseFamilyDb: ZCode / opencode 同族 schema（session + message + part，内容在 data JSON 列）
  * - parseCodexRollout: Codex 会话 JSONL（session_meta + response_item）
  * - parseCodexSessionIndex / parseCodexState: Codex 会话标题来源（noDocs 合并到会话文件资产）
+ * - parseWorkbuddyRollout: WorkBuddy 会话 JSONL（session-meta / ai-title / message）
+ * - parseWorkbuddyDb: WorkBuddy workbuddy.db sessions 表（权威标题/cwd/model，noDocs 合并）
  */
 
 /** epoch 毫秒/秒 或 ISO 字符串 → ISO；无法识别返回 null */
@@ -248,6 +251,121 @@ export function parseCodexState(contentPath: string): ParsedResult | null {
       sessions.push({
         subId: String(r.id),
         title: r.title ? String(r.title) : r.first_user_message ? String(r.first_user_message).slice(0, 60) : null,
+        startedAt: toIso(r.created_at) ?? toIso(r.updated_at),
+        model: r.model ? String(r.model) : null,
+        projectPath: r.cwd ? String(r.cwd) : null,
+        noDocs: true,
+      });
+    }
+    return { docs: [], sessions };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * 剥离 WorkBuddy 的 <system-reminder> 环境注入块，只留用户真实输入。
+ * 每个 user 轮次都以 data-role="user-context" 的注入块开头（user_info/current_time/工具提示等），
+ * 真实提问跟在 </system-reminder> 之后（通常包在 <user_query> 中）；纯注入轮次剥离后为空。
+ */
+function stripInjectedBlocks(text: string): string {
+  const t = text
+    .replace(/<system-reminder\b[\s\S]*?<\/system-reminder>/gi, '')
+    .replace(/<\/?user_query>/gi, '');
+  return t.trim();
+}
+
+/**
+ * WorkBuddy 会话 JSONL（projects/<项目slug>/<会话id>.jsonl）→ 消息文档 + 会话元数据。
+ * 行类型：session-meta（sessionId/meta）、ai-title（AI 生成的会话标题）、message（user/assistant，
+ * content[].text）、reasoning / function_call / function_call_result（工具与思考，P2 不入索引）、
+ * file-history-snapshot / resend-fork-notice（侧车事件）。
+ * subId 取 session-meta/ai-title 的 sessionId，缺省用文件名（会话 uuid）。
+ */
+export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): ParsedResult | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(contentPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const docs: ParsedDoc[] = [];
+  const sessions: SessionMetaRow[] = [];
+  let subId = path.basename(contentPath).replace(/\.jsonl$/, '');
+  let title: string | null = null;
+  let projectPath: string | null = null;
+  let startedAt: string | null = null;
+  let seq = 0;
+  let firstUser: string | null = null;
+
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let o: Record<string, unknown>;
+    try {
+      o = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const type = typeof o.type === 'string' ? o.type : '';
+    if (o.sessionId) subId = String(o.sessionId);
+    if (typeof o.cwd === 'string' && !projectPath) projectPath = o.cwd;
+    if (type === 'ai-title' && typeof o.aiTitle === 'string') {
+      title = o.aiTitle;
+      continue;
+    }
+    if (type !== 'message') continue;
+    const role = typeof o.role === 'string' ? o.role : null;
+    const content = Array.isArray(o.content) ? (o.content as Record<string, unknown>[]) : [];
+    const body = stripInjectedBlocks(content.map((c) => (typeof c.text === 'string' ? c.text : '')).join('\n'));
+    // 纯注入轮次（工具提示 / 错误恢复等）剥离后为空，跳过
+    if (!body) continue;
+    if (!firstUser && role === 'user') firstUser = body.replace(/\s+/g, ' ').slice(0, 60);
+    const ts = toIso(o.timestamp);
+    if (!startedAt && ts) startedAt = ts;
+    docs.push({ subId, docType: 'session_message', seq: seq++, role, ts, text: body });
+  }
+
+  if (subId) {
+    sessions.push({
+      subId,
+      title: title ?? firstUser,
+      startedAt,
+      projectPath,
+      messageCount: docs.length,
+    });
+  }
+  return { docs, sessions };
+}
+
+/**
+ * WorkBuddy workbuddy.db sessions 表：权威会话索引（标题 / cwd / model / 创建时间）。
+ * 无消息文档（noDocs），由索引器按 subId 合并到 projects 下的 <会话id>.jsonl 会话资产上。
+ */
+export function parseWorkbuddyDb(contentPath: string): ParsedResult | null {
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(contentPath, { readOnly: true });
+  } catch {
+    return null;
+  }
+  const sessions: SessionMetaRow[] = [];
+  try {
+    if (!tableExists(db, 'sessions')) return null;
+    const c = cols(db, 'sessions');
+    const pick = (name: string) => (c.has(name) ? name : null);
+    const sel = ['id', pick('title'), pick('custom_title'), pick('cwd'), pick('model'), pick('created_at'), pick('updated_at')]
+      .filter((x): x is string => x != null)
+      .join(', ');
+    // 软删除标记存在时过滤已删会话
+    const where = c.has('deleted_at') ? 'WHERE deleted_at IS NULL' : '';
+    const rows = db.prepare(`SELECT ${sel} FROM sessions ${where}`).all() as unknown[];
+    for (const raw of rows) {
+      const r = raw as Record<string, unknown>;
+      if (r.id == null) continue;
+      const t = r.custom_title ? String(r.custom_title) : r.title ? String(r.title) : null;
+      sessions.push({
+        subId: String(r.id),
+        title: t,
         startedAt: toIso(r.created_at) ?? toIso(r.updated_at),
         model: r.model ? String(r.model) : null,
         projectPath: r.cwd ? String(r.cwd) : null,

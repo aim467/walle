@@ -21,7 +21,7 @@ const HELP = `walle（瓦力）— 本地 AI 资产管理工具 v${VERSION}
 
 命令:
   scan              扫描本机 AI 工具资产（增量、幂等）
-    --source <id>   只扫描指定源（codex/zcode/cursor/opencode）
+    --source <id>   只扫描指定源（codex/zcode/cursor/opencode/workbuddy）
     --json          JSON 输出
   index             构建全文索引（敏感资产永不入索引）
     --rebuild       丢弃现有索引全量重建

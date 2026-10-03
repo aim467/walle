@@ -1,0 +1,3 @@
+{"type":"message","id":"fixture-m3","timestamp":1789300000000,"role":"user","cwd":"D:\\fixture\\other","content":[{"type":"input_text","text":"<system-reminder data-role=\"user-context\">\n<user_info>OS</user_info>\n</system-reminder>\n<user_query>整理一下项目结构</user_query>"}]}
+{"type":"ai-title","id":"fixture-at-2","aiTitle":"JSONL 兜底标题","sessionId":"22222222-2222-4222-8222-222222222222","timestamp":1789300001000,"cwd":"D:\\fixture\\other"}
+{"type":"message","id":"fixture-m4","timestamp":1789300002000,"role":"assistant","content":[{"type":"output_text","text":"已整理项目结构"}]}

@@ -51,6 +51,13 @@ write(
 );
 // rules / skills
 write('codex/rules/default.rules', '# fixture rule\nno-destructive-commands\n');
+// skills：每个技能目录只收 SKILL.md；附属文件与系统 marker 不得成为资产（对齐 cursor/workbuddy）
+write('codex/skills/.system/fixture-skill/SKILL.md', '# Fixture Skill\n\nfixture skill description\n');
+write('codex/skills/.system/fixture-skill/scripts/run.py', 'print("fixture")\n');
+write('codex/skills/.system/fixture-skill/references/notes.md', '# fixture notes\n');
+write('codex/skills/.system/fixture-skill/assets/logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+write('codex/skills/.system/.codex-system-skills.marker', 'v1\n');
+write('codex/skills/user-skill/SKILL.md', '# User Skill\n\nuser skill description\n');
 // 根目录 SQLite 库（threads 元数据 + 空记忆库）
 {
   const db = openDb('codex/state_5.sqlite');
@@ -118,5 +125,70 @@ write('cursor/skills-cursor/automate/SKILL.md', '---\nname: automate\ndescriptio
   db.close();
 }
 write('cursor-appdata/User/settings.json', JSON.stringify({ 'editor.fontSize': 14 }));
+
+// ---------- workbuddy（单根 ~/.workbuddy-ai 的脱敏样本） ----------
+write('workbuddy/settings.json', JSON.stringify({ theme: 'dark', sandbox: { extraAllowWrite: [] } }, null, 2));
+write('workbuddy/mcp-tool-list.json', JSON.stringify({ tools: [{ name: 'fixture-mcp-tool' }] }, null, 2));
+write('workbuddy/mcp-approvals.json', JSON.stringify({}));
+write('workbuddy/models.json', JSON.stringify({}));
+write('workbuddy/last-launch.json', JSON.stringify({ at: '2026-10-01T00:00:00Z' }));
+// 身份 / 记忆
+write('workbuddy/SOUL.md', '# SOUL\n\nfixture soul\n');
+write('workbuddy/USER.md', '# USER\n\nfixture user profile\n');
+write('workbuddy/memory/fixture-uid_memory.md', '# User Memory Profile\n\nfixture memory: 语义检索阈值配置\n');
+// 技能
+write('workbuddy/skills/fixture-skill/SKILL.md', '---\nname: fixture-skill\ndescription: fixture\n---\n\nfixture skill body\n');
+// 插件（含在用版本标记）
+write('workbuddy/plugins/cache/fixture-market/fixture-plugin/1.0.0/.codebuddy-plugin/plugin.json', JSON.stringify({ name: 'fixture-plugin', version: '1.0.0' }, null, 2));
+write('workbuddy/plugins/cache/fixture-market/fixture-plugin/1.0.0/.in_use', '');
+write('workbuddy/plugins/cache/fixture-market/fixture-plugin/0.9.0/.codebuddy-plugin/plugin.json', JSON.stringify({ name: 'fixture-plugin', version: '0.9.0' }, null, 2));
+// 连接器与凭证
+write('workbuddy/connectors/fixture-uid/connector-states.json', JSON.stringify({ version: 4, connectors: {} }, null, 2));
+write('workbuddy/connectors/fixture-uid/.master.key', 'fixture-connector-master-key-000000000000');
+write('workbuddy/keyblob', 'fixture-keyblob-0000000000000000');
+// 审计日志
+write('workbuddy/audit-log/2026-10-01.jsonl', JSON.stringify({ sessionId: '11111111-1111-4111-8111-111111111111', eventType: 'command-safety.sandbox-executed', decision: 'allowed' }) + '\n');
+
+// 会话 A：workbuddy.db 有权威标题（验证 noDocs 合并）；用户提问藏在 <system-reminder> 之后的 <user_query>
+const wbSessA = '11111111-1111-4111-8111-111111111111';
+write(
+  `workbuddy/projects/c-fixture-proj/${wbSessA}.jsonl`,
+  [
+    { type: 'session-meta', id: 'fixture-sm-1', sessionId: wbSessA, timestamp: 1789211122934, cwd: 'D:\\fixture\\proj', meta: { 'codebuddy.ai/hostKind': 'unopted' } },
+    {
+      type: 'message',
+      id: 'fixture-m1',
+      timestamp: 1789211123260,
+      role: 'user',
+      cwd: 'D:\\fixture\\proj',
+      content: [{ type: 'input_text', text: '<system-reminder data-role="user-context">\n<user_info>\nOS Version: win32\n</user_info>\n</system-reminder>\n<user_query>帮我检查语义检索的阈值配置</user_query>' }],
+    },
+    { type: 'ai-title', id: 'fixture-at-1', aiTitle: '检查语义检索阈值', sessionId: wbSessA, timestamp: 1789211128948, cwd: 'D:\\fixture\\proj' },
+    { type: 'message', id: 'fixture-m2', timestamp: 1789211130000, role: 'assistant', content: [{ type: 'output_text', text: '语义检索阈值已确认，mcp server 正常' }] },
+  ]
+    .map((o) => JSON.stringify(o))
+    .join('\n') + '\n',
+);
+
+// 会话 B：workbuddy.db 无记录（验证 ai-title 兜底）
+const wbSessB = '22222222-2222-4222-8222-222222222222';
+write(
+  `workbuddy/projects/d-fixture-other/${wbSessB}.jsonl`,
+  [
+    { type: 'message', id: 'fixture-m3', timestamp: 1789300000000, role: 'user', cwd: 'D:\\fixture\\other', content: [{ type: 'input_text', text: '<system-reminder data-role="user-context">\n<user_info>OS</user_info>\n</system-reminder>\n<user_query>整理一下项目结构</user_query>' }] },
+    { type: 'ai-title', id: 'fixture-at-2', aiTitle: 'JSONL 兜底标题', sessionId: wbSessB, timestamp: 1789300001000, cwd: 'D:\\fixture\\other' },
+    { type: 'message', id: 'fixture-m4', timestamp: 1789300002000, role: 'assistant', content: [{ type: 'output_text', text: '已整理项目结构' }] },
+  ]
+    .map((o) => JSON.stringify(o))
+    .join('\n') + '\n',
+);
+
+// 会话索引库（sessions 表：权威标题/cwd/model；仅含会话 A）
+{
+  const db = openDb('workbuddy/workbuddy.db');
+  db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, custom_title TEXT, cwd TEXT, model TEXT, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER);
+INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessA}', 'WorkBuddy 数据库标题', 'D:\\fixture\\proj', 'fixture-model', 1789211122934, 1789213894036, NULL);`);
+  db.close();
+}
 
 console.log(`fixtures 已生成: ${fixtures}`);

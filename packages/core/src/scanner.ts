@@ -20,6 +20,7 @@ function readHead(absPath: string, bytes: number): string {
 /**
  * 扫描引擎：驱动各适配器发现资产，做增量比对与内容入仓。
  * 增量策略：(size, mtime) 未变 → 跳过哈希；变化 → 重哈希，内容不同才算 updated。
+ * 例外：内容未变但元数据（kind/name/raw_format）漂移，或资产曾失踪，则只刷新元数据（不重哈希、不留快照）。
  * 幂等性：稳定资产在第二次扫描中零写入（不更新 last_seen）。
  */
 export async function runScan(
@@ -68,9 +69,16 @@ export async function runScan(
         result.byKind[raw.kind] = (result.byKind[raw.kind] ?? 0) + 1;
         const prev = existing.get(raw.path);
 
-        // 快路径：size+mtime 未变，直接视为 unchanged（不读内容、零写入）
+        // 快路径：size+mtime+元数据均未变 → 视为 unchanged（不读内容、零写入）
+        // 元数据（kind/name/raw_format）变化必须落到库里，否则适配器改了建模语义，旧行永远纠正不过来。
         if (prev && prev.size === raw.size && prev.mtime === raw.mtime && prev.contentHash) {
-          result.unchanged++;
+          const metaSame = prev.kind === raw.kind && prev.name === (raw.name ?? null) && prev.rawFormat === raw.rawFormat;
+          if (!metaSame || prev.status === 'missing') {
+            store.updateAssetMeta(prev.id, raw, now); // 内容未变：不重哈希、不留快照
+            result.updated++;
+          } else {
+            result.unchanged++;
+          }
           keepIds.add(prev.id);
           continue;
         }

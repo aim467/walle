@@ -3,6 +3,12 @@ dist/
 packages/ui/dist/
 *.tsbuildinfo
 .DS_Store
+# UI 截图自检产物（临时）
+.shots/
 # 测试固件中动态生成的 SQLite 库（由 scripts/gen-fixtures.mjs 重建）
 fixtures/**/*.sqlite
 fixtures/**/*.sqlite-*
+# UI vite 配置编译临时产物
+packages/ui/vite.config.mts.timestamp-*
+# 本机 WorkBuddy 真实数据目录
+.workbuddy-ai/

@@ -1,6 +1,6 @@
 # Walle（瓦力）
 
-本地 AI 资产管理工具：把散落在各个 AI 工具（ZCode、Codex CLI，后续 Cursor / opencode / VS Code）里的配置、会话历史、记忆、Skills、MCP 配置统一收集、检索、备份。
+本地 AI 资产管理工具：把散落在各个 AI 工具（ZCode、Codex CLI、Cursor、opencode、WorkBuddy，后续 VS Code）里的配置、会话历史、记忆、Skills、MCP 配置统一收集、检索、备份。
 
 - 设计与阶段规划见 [docs/开发文档.md](docs/开发文档.md)
 - 数据源调研见 [docs/data-sources/](docs/data-sources/)

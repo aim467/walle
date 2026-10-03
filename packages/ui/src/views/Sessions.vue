@@ -5,6 +5,7 @@ import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
+import workbuddyLogo from '../assets/logos/workbuddy.svg';
 
 interface Hit {
   assetId: number; subId: string; tool: string; kind: string; role: string | null;
@@ -34,6 +35,7 @@ const TOOLS: ToolDef[] = [
   { id: 'codex', name: 'Codex CLI', logo: openaiLogo, letter: 'C', color: '#10a37f' },
   { id: 'cursor', name: 'Cursor', logo: cursorLogo, letter: 'C', color: '#111' },
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo, letter: 'O', color: '#111' },
+  { id: 'workbuddy', name: 'WorkBuddy', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
 ];
 
 const activeTool = ref<string | null>(null); // null = 全部工具
