@@ -371,7 +371,7 @@ onMounted(async () => {
 .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 16px 16px; overflow: hidden; }
 
 /* 列表 */
-.list { flex: 1 1 56%; min-width: 340px; display: flex; flex-direction: column; overflow: hidden; }
+.list { flex: 1 1 38%; min-width: 300px; display: flex; flex-direction: column; overflow: hidden; }
 .list-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .lh-title { font-size: 13.5px; font-weight: 700; }
 .lh-n { font-size: 12px; color: var(--dim); }
@@ -387,12 +387,12 @@ onMounted(async () => {
 .arow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .arow-name { font-size: 13.5px; font-weight: 600; display: flex; gap: 8px; align-items: center; min-width: 0; }
 .arow-name-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.arow-path { display: block; font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arow-path { font-size: 11.5px; color: var(--dim); word-break: break-all; line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .arow-size { flex-shrink: 0; font-size: 11.5px; color: var(--dim); }
 .sflag { flex-shrink: 0; font-size: 10px; font-weight: 500; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; line-height: 14px; }
 
 /* Inspector */
-.inspector { flex: 1 1 44%; min-width: 320px; display: flex; flex-direction: column; overflow: hidden; }
+.inspector { flex: 1 1 62%; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }
 .empty-detail { align-items: center; justify-content: center; }
 .insp-head { flex: 0 0 auto; display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .insp-logo { width: 20px; height: 20px; border-radius: 5px; object-fit: contain; background: #fff; flex-shrink: 0; margin-top: 1px; }
