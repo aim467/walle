@@ -9,3 +9,4 @@ import { workbuddyAdapter } from './workbuddy.js';
 export const adapters: Adapter[] = [codexAdapter, zcodeAdapter, cursorAdapter, opencodeAdapter, workbuddyAdapter];
 
 export { codexAdapter, zcodeAdapter, cursorAdapter, opencodeAdapter, workbuddyAdapter };
+export { TOOL_ROOT_DEFS, resolveToolRoot, type ToolRootDef } from './roots.js';

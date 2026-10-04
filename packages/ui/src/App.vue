@@ -4,6 +4,7 @@ import { NConfigProvider, NMessageProvider, darkTheme, type GlobalThemeOverrides
 import Overview from './views/Overview.vue';
 import Assets from './views/Assets.vue';
 import Sessions from './views/Sessions.vue';
+import Settings from './views/Settings.vue';
 
 const route = ref(location.hash.slice(1) || '/');
 window.addEventListener('hashchange', () => { route.value = location.hash.slice(1) || '/'; });
@@ -12,6 +13,7 @@ const nav = [
   { path: '/', label: '总览', icon: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z' },
   { path: '/assets', label: '资产库', icon: 'M3 5a2 2 0 012-2h5l2 2h7a2 2 0 012 2v11a2 2 0 01-2 2H5a2 2 0 01-2-2z' },
   { path: '/sessions', label: '会话', icon: 'M4 4h16a2 2 0 012 2v9a2 2 0 01-2 2H9l-5 4V6a2 2 0 012-2z' },
+  { path: '/settings', label: '设置', icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zm8.4 4a8.4 8.4 0 00-.1-1.3l2-1.6-2-3.4-2.4 1a8.5 8.5 0 00-2.2-1.3L15.3 3h-4l-.4 2.4a8.5 8.5 0 00-2.2 1.3l-2.4-1-2 3.4 2 1.6a8.4 8.4 0 000 2.6l-2 1.6 2 3.4 2.4-1a8.5 8.5 0 002.2 1.3l.4 2.4h4l.4-2.4a8.5 8.5 0 002.2-1.3l2.4 1 2-3.4-2-1.6c.07-.43.1-.86.1-1.3z' },
 ];
 
 // Apple 风格浅色主题（不用 darkTheme，仅保留类型引用以备切换）
@@ -67,6 +69,7 @@ onMounted(async () => {
             <Overview v-if="route === '/'" />
             <Assets v-else-if="route.startsWith('/assets')" />
             <Sessions v-else-if="route.startsWith('/sessions')" />
+            <Settings v-else-if="route.startsWith('/settings')" />
             <div v-else class="dim" style="padding-top:120px;text-align:center">404</div>
           </main>
         </div>

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { Adapter, ParseMode, ParsedResult, RawAsset } from '@walle/core';
 import { statAsset } from './util.js';
+import { resolveToolRoot } from './roots.js';
 import { parseFamilyDb } from './parse.js';
 
 /**
@@ -12,10 +12,9 @@ import { parseFamilyDb } from './parse.js';
  * 资产 path 前缀 "data:" 锚定数据根。
  */
 
-/** 数据根 ~/.local/share/opencode，WALLE_OPENCODE_DATA 供测试重定向 */
+/** 数据根 ~/.local/share/opencode；可被配置覆盖 / WALLE_OPENCODE_DATA 重定向 */
 function dataRoot(): string {
-  if (process.env.WALLE_OPENCODE_DATA) return process.env.WALLE_OPENCODE_DATA;
-  return path.join(os.homedir(), '.local', 'share', 'opencode');
+  return resolveToolRoot('opencode.data');
 }
 
 export const opencodeAdapter: Adapter = {
@@ -24,7 +23,7 @@ export const opencodeAdapter: Adapter = {
   capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
-    const root = rootOverride ?? path.join(os.homedir(), '.config', 'opencode');
+    const root = rootOverride ?? resolveToolRoot('opencode');
     try {
       return fs.statSync(root).isDirectory() ? root : null;
     } catch {

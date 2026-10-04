@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import type { Adapter, AssetKind, ParseMode, ParsedResult, RawAsset } from '@walle/core';
 import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
+import { resolveToolRoot } from './roots.js';
 import { parseWorkbuddyRollout, parseWorkbuddyDb } from './parse.js';
 
 /**
@@ -82,7 +82,7 @@ export const workbuddyAdapter: Adapter = {
   },
 
   detect(rootOverride?: string): string | null {
-    const root = rootOverride ?? path.join(os.homedir(), '.workbuddy-ai');
+    const root = rootOverride ?? resolveToolRoot('workbuddy');
     try {
       return fs.statSync(root).isDirectory() ? root : null;
     } catch {

@@ -7,6 +7,15 @@ import { walleHome } from './paths.js';
 export interface WalleConfig {
   /** 写回开关：false 时所有写回命令直接拒绝 */
   allowWrite?: boolean;
+  /** 各 AI 工具数据源路径覆盖：key 见 @walle/adapters 的 TOOL_ROOT_DEFS（如 codex / cursor.appdata），
+   *  值为绝对路径；未配置时适配器回退默认路径。改动后需重新 scan 才会生效。 */
+  toolPaths?: Record<string, string>;
+}
+
+/** 读取某工具路径覆盖（未配置返回 undefined） */
+export function getToolPathOverride(key: string): string | undefined {
+  const v = readWalleConfig().toolPaths?.[key];
+  return v && v.trim() ? v.trim() : undefined;
 }
 
 export function readWalleConfig(): WalleConfig {

@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { WriteEngine, readWalleConfig, maskSecrets } from '@walle/core';
-import { adapters } from '@walle/adapters';
+import { WriteEngine, readWalleConfig, writeWalleConfig, maskSecrets } from '@walle/core';
+import { adapters, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
 
 /** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
@@ -172,6 +172,66 @@ export async function cmdServe(rest: string[]): Promise<void> {
       }
       if (url.pathname === '/api/config') {
         json(res, { allowWrite: !!readWalleConfig().allowWrite });
+        return;
+      }
+      if (url.pathname === '/api/settings') {
+        // 设置页：各工具数据源根路径（覆盖/默认/生效值）
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', (c) => {
+            body += c;
+            if (body.length > 256 * 1024) req.destroy();
+          });
+          req.on('end', () => {
+            try {
+              const { toolPaths } = JSON.parse(body) as { toolPaths?: Record<string, unknown> };
+              if (toolPaths !== undefined && (typeof toolPaths !== 'object' || toolPaths === null)) {
+                json(res, { ok: false, error: 'toolPaths 必须是对象' });
+                return;
+              }
+              const clean: Record<string, string> = {};
+              for (const [k, v] of Object.entries(toolPaths ?? {})) {
+                if (!TOOL_ROOT_DEFS.some((d) => d.key === k)) {
+                  json(res, { ok: false, error: `未知的路径配置项: ${k}` });
+                  return;
+                }
+                if (typeof v !== 'string') {
+                  json(res, { ok: false, error: `路径配置项 ${k} 的值必须是字符串` });
+                  return;
+                }
+                const t = v.trim();
+                if (t) clean[k] = t; // 空串 = 恢复默认
+              }
+              const cfg = readWalleConfig();
+              writeWalleConfig({ ...cfg, toolPaths: clean });
+              json(res, { ok: true, toolPaths: clean, hint: '已保存。重新执行 walle scan 后新路径生效。' });
+            } catch (err) {
+              json(res, { ok: false, error: (err as Error).message });
+            }
+          });
+          return;
+        }
+        const cfg = readWalleConfig();
+        json(res, {
+          allowWrite: !!cfg.allowWrite,
+          toolPaths: cfg.toolPaths ?? {},
+          roots: TOOL_ROOT_DEFS.map((d) => {
+            const override = cfg.toolPaths?.[d.key];
+            const env = d.env ? process.env[d.env] : undefined;
+            const effective = d.env ? process.env[d.env] || undefined : undefined;
+            const root = override || effective || d.default();
+            return {
+              key: d.key,
+              tool: d.tool,
+              label: d.label,
+              defaultRoot: d.default(),
+              envRedirect: env && !override ? env : null,
+              override: override ?? null,
+              effectiveRoot: root,
+              exists: fs.existsSync(root),
+            };
+          }),
+        });
         return;
       }
       if (url.pathname === '/api/write' && req.method === 'POST') {

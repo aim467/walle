@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { Adapter, AssetKind, RawAsset } from '@walle/core';
 import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
+import { resolveToolRoot } from './roots.js';
 
 /**
  * Cursor 适配器（P2）。
@@ -13,12 +13,9 @@ import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
 
 const IGNORE_DIRS = ['extensions', 'plugins', 'cache'];
 
-/** 应用根（Windows 为 %APPDATA%\Cursor），WALLE_CURSOR_APPDATA 供测试重定向 */
+/** 应用根（Windows 为 %APPDATA%\Cursor）；可被配置覆盖 / WALLE_CURSOR_APPDATA 重定向 */
 function appdataRoot(): string {
-  if (process.env.WALLE_CURSOR_APPDATA) return process.env.WALLE_CURSOR_APPDATA;
-  return process.env.APPDATA
-    ? path.join(process.env.APPDATA, 'Cursor')
-    : path.join(os.homedir(), 'AppData', 'Roaming', 'Cursor');
+  return resolveToolRoot('cursor.appdata');
 }
 
 /** 应用根（AppData）下的资产，path 用 "appdata:" 前缀锚定 */
@@ -42,7 +39,7 @@ export const cursorAdapter: Adapter = {
   capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
-    const root = rootOverride ?? path.join(os.homedir(), '.cursor');
+    const root = rootOverride ?? resolveToolRoot('cursor');
     try {
       return fs.statSync(root).isDirectory() ? root : null;
     } catch {

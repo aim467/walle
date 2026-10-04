@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import type { Adapter, AssetKind, ParseMode, ParsedResult, RawAsset } from '@walle/core';
 import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
+import { resolveToolRoot } from './roots.js';
 import { parseFamilyDb } from './parse.js';
 
 /**
@@ -41,7 +41,7 @@ export const zcodeAdapter: Adapter = {
   capabilities: { read: true, write: true },
 
   detect(rootOverride?: string): string | null {
-    const root = rootOverride ?? path.join(os.homedir(), '.zcode');
+    const root = rootOverride ?? resolveToolRoot('zcode');
     try {
       return fs.statSync(root).isDirectory() ? root : null;
     } catch {
