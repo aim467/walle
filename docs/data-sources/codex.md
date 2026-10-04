@@ -4,7 +4,8 @@
 |---|---|
 | 调研日期 | 2026-09-30（全部结论来自本机实测，验证脚本 `scripts/verify/verify-codex.mjs`） |
 | 根目录 | `~/.codex`（即 `C:\Users\Administrator\.codex`） |
-| 工具版本 | cli_version 0.156.1（取自 session_meta） |
+| 工具版本 | 0.156.1（session_meta 取值，2026-10-04 实测已升 0.160.0） |
+| 状态 | ✅ 已接入适配器（最近更新 2026-10-04：function_call/custom_tool_call 工具调用与 token_count 用量解析） |
 | 写回评估 | 见文末，P4 前只读 |
 
 ## 1. 资产清单

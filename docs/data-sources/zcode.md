@@ -5,6 +5,7 @@
 | 调研日期 | 2026-09-30（全部结论来自本机实测，验证脚本 `scripts/verify/verify-zcode.mjs`） |
 | 根目录 | `~/.zcode`（即 `C:\Users\Administrator\.zcode`） |
 | 工具版本 | 0.16.9（取自 session 表 version 列） |
+| 状态 | ✅ 已接入适配器（最近更新 2026-10-04：工具调用/用量解析、artifacts 降噪、skills 符号链接） |
 | 写回评估 | 见文末，P4 前只读 |
 
 ## 1. 资产清单
