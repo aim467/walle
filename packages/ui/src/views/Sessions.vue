@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue';
-import { NInput, NEmpty, NTag, NButton } from 'naive-ui';
+import { NInput, NEmpty, NTag, NButton, NSelect } from 'naive-ui';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -15,9 +15,11 @@ interface Hit {
   assetId: number; subId: string; tool: string; kind: string; role: string | null;
   time: string | null; title: string; snippet: string; path: string;
   model?: string | null; projectPath?: string | null; messageCount?: number | null;
+  tokensTotal?: number | null; tokensInput?: number | null; tokensOutput?: number | null;
 }
 interface Msg { seq: number; role: string | null; ts: string | null; text: string; docType?: string }
-interface ReadMeta { model: string | null; projectPath: string | null; startedAt: string | null; messageCount: number | null; subId: string }
+interface TokenUsage { input: number | null; output: number | null; reasoning: number | null; cacheRead: number | null; cacheWrite: number | null; total: number | null; cost: number | null }
+interface ReadMeta { model: string | null; projectPath: string | null; startedAt: string | null; messageCount: number | null; subId: string; usage: TokenUsage | null }
 interface ArtifactFile { name: string; size: number; mtime: string }
 
 const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具' };
@@ -66,9 +68,20 @@ const listTitle = computed(() => {
   return `${name} · ${hits.value.length} 个会话`;
 });
 const listFiltered = computed(() => {
-  if (!listQ.value.trim()) return hits.value;
+  let rows = hits.value;
+  if (projectFilter.value) rows = rows.filter((h) => h.projectPath === projectFilter.value);
+  if (!listQ.value.trim()) return rows;
   const s = listQ.value.toLowerCase();
-  return hits.value.filter((h) => (h.title ?? '').toLowerCase().includes(s) || (h.projectPath ?? '').toLowerCase().includes(s) || (h.model ?? '').toLowerCase().includes(s));
+  return rows.filter((h) => (h.title ?? '').toLowerCase().includes(s) || (h.projectPath ?? '').toLowerCase().includes(s) || (h.model ?? '').toLowerCase().includes(s));
+});
+/** 项目归集筛选：当前工具下出现过的项目路径（显示名取末段 + 会话数，值为完整路径） */
+const projectFilter = ref<string | null>(null);
+const projectOptions = computed(() => {
+  const m = new Map<string, number>();
+  for (const h of hits.value) if (h.projectPath) m.set(h.projectPath, (m.get(h.projectPath) ?? 0) + 1);
+  return [...m.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([p, n]) => ({ label: `${p.replace(/^\\\\\?\\/, '').split(/[\\/]/).pop() || p} (${n})`, value: p }));
 });
 const FOLD_CHARS = 2048;
 /** 超长消息折叠状态（按消息对象弱引用，切换会话自动失效） */
@@ -175,6 +188,7 @@ async function loadSessions() {
 function selectTool(id: string | null) {
   activeTool.value = id;
   listQ.value = '';
+  projectFilter.value = null;
   const p = new URLSearchParams({ sessions: '1' });
   if (id) p.set('tool', id);
   fetch('/api/list?' + p).then((r) => r.json()).then((d) => { hits.value = d.hits ?? []; });
@@ -214,6 +228,12 @@ function currentAssetId(): number {
 function fmtDate(iso: string | null): string { return iso ? iso.slice(0, 10) : ''; }
 function fmtHM(iso: string | null): string { return iso ? iso.slice(11, 16) : ''; }
 function fmtFull(iso: string | null): string { return iso ? iso.replace('T', ' ').slice(0, 19) : '-'; }
+function fmtTok(n: number | null): string {
+  if (n == null) return '-';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + ' M';
+  if (n >= 1e4) return (n / 1e3).toFixed(1) + ' k';
+  return n.toLocaleString('en-US');
+}
 
 // 列表拖拽调宽
 const listW = ref(380);
@@ -276,6 +296,10 @@ onMounted(async () => {
         </div>
         <div class="list-search">
           <n-input v-model:value="listQ" placeholder="搜索当前列表…" size="small" round clearable />
+          <n-select
+            v-if="projectOptions.length" v-model:value="projectFilter" :options="projectOptions"
+            placeholder="按项目归集" size="small" clearable filterable style="margin-top:6px"
+          />
         </div>
         <div class="list-scroll">
           <div v-for="(h, i) in listFiltered" :key="i" class="s-item" :class="{ sel: curKey === h.assetId + '|' + (h.subId ?? '') }" @click="openAsset(h)">
@@ -284,7 +308,7 @@ onMounted(async () => {
               <span class="dim small">{{ fmtHM(h.time) }}</span>
             </div>
             <div class="s-title">{{ h.title }}</div>
-            <div class="dim small">{{ h.model ?? '未知模型' }}<template v-if="h.messageCount"> · {{ h.messageCount }} 条消息</template></div>
+            <div class="dim small">{{ h.model ?? '未知模型' }}<template v-if="h.messageCount"> · {{ h.messageCount }} 条消息</template><template v-if="h.tokensTotal"> · {{ fmtTok(h.tokensTotal) }} tok</template></div>
             <div class="dim small s-path">{{ h.projectPath ?? h.path }}</div>
           </div>
           <n-empty :description="listQ ? '没有匹配的会话' : '选择上方工具查看会话'" size="small" style="padding:36px 0" />
@@ -380,7 +404,19 @@ onMounted(async () => {
                   <div class="mono small">{{ f[1] }}</div>
                 </div>
               </div>
-              <div class="dim small" style="margin-top:14px">token 用量与耗时统计将随会话解析增强提供</div>
+              <div v-if="readMeta.meta?.usage" class="usage-block">
+                <div class="dim small ub-head">Token 用量</div>
+                <div class="usage-grid">
+                  <div class="ov-item" v-for="f in [
+                    ['输入', fmtTok(readMeta.meta.usage.input)], ['输出', fmtTok(readMeta.meta.usage.output)],
+                    ['缓存读', fmtTok(readMeta.meta.usage.cacheRead)], ['合计', fmtTok(readMeta.meta.usage.total ?? (readMeta.meta.usage.input ?? 0) + (readMeta.meta.usage.output ?? 0))],
+                  ]" :key="f[0]">
+                    <div class="dim small">{{ f[0] }}</div>
+                    <div class="mono small">{{ f[1] }}</div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="dim small" style="margin-top:14px">本会话的数据源未记录 token 用量</div>
             </div>
             <!-- Tools -->
             <div v-else-if="detailTab === 'tools'">
@@ -592,4 +628,7 @@ onMounted(async () => {
 .ov-item { background: var(--bg); border-radius: 10px; padding: 10px 14px; }
 .ov-item .mono { margin-top: 2px; word-break: break-all; }
 .raw { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font: 11.5px/1.5 "SF Mono",ui-monospace,Consolas,monospace; white-space: pre; overflow: auto; max-height: calc(100vh - 300px); margin: 0; }
+.usage-block { margin-top: 14px; }
+.ub-head { margin-bottom: 6px; }
+.usage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
 </style>

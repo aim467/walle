@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { ParsedDoc, ParsedResult, SessionMetaRow, ParseMode } from '@walle/core';
+import type { ParsedDoc, ParsedResult, SessionMetaRow, ParseMode, TokenUsage } from '@walle/core';
+
+/** 数值安全提取（非有限数返回 null） */
+function numOf(v: unknown): number | null {
+  return typeof v === 'number' && isFinite(v) ? v : null;
+}
 
 /**
  * 会话解析器集合（P2）。输入是 CAS 内容仓副本（只读），输出统一 ParsedResult。
@@ -88,6 +93,8 @@ export function parseFamilyDb(contentPath: string, mode: ParseMode): ParsedResul
   }
   const docs: ParsedDoc[] = [];
   const sessions: SessionMetaRow[] = [];
+  // step-finish part 的 tokens/cost 按会话累加（每步一步的用量）
+  const usageAcc = new Map<string, TokenUsage>();
   try {
     if (!tableExists(db, 'session') || !tableExists(db, 'message')) return null;
     const sCols = cols(db, 'session');
@@ -142,6 +149,27 @@ export function parseFamilyDb(contentPath: string, mode: ParseMode): ParsedResul
         if (!d) continue;
         const subId = String(r.session_id);
         const msgTs = roleByMsg.get(String(r.message_id))?.ts ?? null;
+        if (d.type === 'step-finish') {
+          // 每步模型调用的用量（tokens.{input,output,reasoning,total}, cache.{read,write}, cost）
+          const t = d.tokens as Record<string, unknown> | undefined;
+          if (t && typeof t === 'object') {
+            const acc = usageAcc.get(subId) ?? {};
+            const add = (k: keyof TokenUsage, v: unknown) => {
+              const n = numOf(v);
+              if (n != null) acc[k] = (acc[k] ?? 0) + n;
+            };
+            add('input', t.input);
+            add('output', t.output);
+            add('reasoning', t.reasoning);
+            const cache = t.cache as Record<string, unknown> | undefined;
+            add('cacheRead', cache?.read);
+            add('cacheWrite', cache?.write);
+            add('total', t.total);
+            add('cost', d.cost);
+            usageAcc.set(subId, acc);
+          }
+          continue;
+        }
         if (d.type === 'tool') {
           // 工具调用（ZCode/opencode 同构）：state.{status,input,output,time} → Tools 页签 + 涉及文件
           const name = typeof d.tool === 'string' ? d.tool : 'tool';
@@ -205,6 +233,9 @@ export function parseFamilyDb(contentPath: string, mode: ParseMode): ParsedResul
         docs.push({ subId: String(r.session_id), docType: 'session_message', seq: seq++, role: 'user', ts: toIso(r.time_created), text: String(r.text) });
       }
     }
+    if (usageAcc.size > 0) {
+      for (const s of sessions) s.usage = usageAcc.get(s.subId) ?? null;
+    }
     return { docs, sessions };
   } finally {
     db.close();
@@ -232,6 +263,7 @@ export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedR
   let seq = 0;
   let firstUser: string | null = null;
   const callNames = new Map<string, string>();
+  let usage: TokenUsage | null = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let o: Record<string, unknown>;
@@ -246,6 +278,24 @@ export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedR
       subId = payload.session_id ? String(payload.session_id) : subId;
       projectPath = payload.cwd ? String(payload.cwd) : null;
       startedAt = toIso(payload.timestamp);
+      continue;
+    }
+    if (o.type === 'event_msg' && payload.type === 'token_count') {
+      // info.total_token_usage 是会话累计值；取累计最大者（多轮递增，乱序/重复事件防御）
+      const info = payload.info as Record<string, unknown> | undefined;
+      const t = info?.total_token_usage as Record<string, unknown> | undefined;
+      const total = numOf(t?.total_tokens);
+      if (total != null && total >= (usage?.total ?? 0)) {
+        usage = {
+          input: numOf(t?.input_tokens),
+          output: numOf(t?.output_tokens),
+          reasoning: numOf(t?.reasoning_output_tokens),
+          cacheRead: numOf(t?.cached_input_tokens),
+          cacheWrite: numOf(t?.cache_write_input_tokens),
+          total,
+          cost: null,
+        };
+      }
       continue;
     }
     if (o.type !== 'response_item') continue;
@@ -300,6 +350,7 @@ export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedR
       startedAt,
       projectPath,
       messageCount: docs.length,
+      usage,
     });
   }
   return { docs, sessions };

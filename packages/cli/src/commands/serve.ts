@@ -122,7 +122,10 @@ export async function cmdServe(rest: string[]): Promise<void> {
           .sort((a, b) => (b.mtime ?? '').localeCompare(a.mtime ?? ''))
           .slice(0, 25)
           .map((a) => ({ id: a.id, tool: a.tool, kind: a.kind, name: a.name, path: a.path, mtime: a.mtime, size: a.size, sensitive: !!a.sensitive }));
-        json(res, { sources: perSource, recent, allowWrite: !!readWalleConfig().allowWrite });
+        json(res, {
+          sources: perSource, recent, allowWrite: !!readWalleConfig().allowWrite,
+          usage: store.usageByTool(), usageDaily: store.usageByDay(30), usageProjects: store.usageByProject(10),
+        });
         return;
       }
       if (url.pathname === '/api/stats') {
@@ -141,6 +144,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
               assetId: s.assetId, subId: s.subId, tool: s.tool, kind: 'session', role: null,
               time: s.startedAt, title: s.title ?? '(无标题)', path: s.assetPath,
               model: s.model, projectPath: s.projectPath, messageCount: s.messageCount,
+              tokensTotal: s.usage?.total ?? null, tokensInput: s.usage?.input ?? null, tokensOutput: s.usage?.output ?? null,
               snippet: `${s.model ?? ''} ${s.projectPath ?? ''}`.trim(),
             })),
           });
@@ -326,7 +330,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
           tool: asset.tool, path: asset.path, title, messages,
           meta: metaRow ? {
             model: metaRow.model, projectPath: metaRow.projectPath, startedAt: metaRow.startedAt,
-            messageCount: metaRow.messageCount, subId: metaRow.subId,
+            messageCount: metaRow.messageCount, subId: metaRow.subId, usage: metaRow.usage,
           } : null,
         });
         return;

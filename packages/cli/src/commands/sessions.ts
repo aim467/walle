@@ -22,13 +22,14 @@ export async function cmdSessions(rest: string[]): Promise<void> {
       console.log('没有会话元数据。先运行 walle scan && walle index。');
       return;
     }
-    console.log(`${pad('ASSET', 7)}${pad('来源', 10)}${pad('开始时间', 21)}${pad('消息', 6)}标题`);
+    console.log(`${pad('ASSET', 7)}${pad('来源', 10)}${pad('开始时间', 21)}${pad('消息', 6)}${pad('TOKENS', 10)}标题`);
     for (const s of rows) {
+      const total = s.usage?.total ?? null;
       console.log(
         `${pad(String(s.assetId), 7)}${pad(s.tool, 10)}${pad(shortTime(s.startedAt), 21)}${pad(
           s.messageCount == null ? '-' : String(s.messageCount),
           6,
-        )}${trunc(s.title ?? '(无标题)', 56)}`,
+        )}${pad(total == null ? '-' : total.toLocaleString('en-US'), 10)}${trunc(s.title ?? '(无标题)', 48)}`,
       );
     }
     console.log(`共 ${rows.length} 个会话（walle read <asset-id> 阅读）`);

@@ -321,8 +321,60 @@ test('工具调用与文件文档：Codex function_call / ZCode tool part / open
   assert.ok(orr.docs.some((d) => d.docType === 'session_file' && d.text === 'D:/fixture/proj/src/style.css'), 'opencode patch files 应入 session_file');
 });
 
-test('CAS put 合并 SQLite -wal：运行中库不丢数据', () => {
-  const cas2 = new ContentStore(path.join(process.env.WALLE_HOME, 'objects2'));
+test('token 用量：Codex 取累计最大值 / ZCode step-finish 累加', () => {
+  const cx = adapters.find((a) => a.id === 'codex');
+  const cr = cx.parse(
+    path.join(fixtures, 'codex/sessions/2026/07/08/rollout-2026-07-08T13-57-45-019f404d-bbb3-7eb0-a91e-ffed59995d84.jsonl'),
+    { kind: 'session', path: 'sessions/rollout.jsonl', tool: 'codex' }, 'index',
+  );
+  assert.ok(cr.sessions[0]?.usage, 'codex 会话应有用量');
+  assert.equal(cr.sessions[0].usage.total, 390, '应取 total_token_usage 的会话累计最大值');
+  assert.equal(cr.sessions[0].usage.input, 300);
+  assert.equal(cr.sessions[0].usage.output, 90);
+  assert.equal(cr.sessions[0].usage.cacheRead, 60);
+
+  const zc = adapters.find((a) => a.id === 'zcode');
+  const zr = zc.parse(path.join(fixtures, 'zcode/cli/db/db.sqlite'), { kind: 'session', path: 'cli/db/db.sqlite', tool: 'zcode' }, 'read');
+  const zs = zr.sessions.find((s) => s.subId === 'sess_fixture1');
+  assert.ok(zs?.usage, 'zcode 会话应有用量');
+  assert.equal(zs.usage.total, 1500, '两步 step-finish 应累加');
+  assert.equal(zs.usage.input, 1300);
+  assert.equal(zs.usage.output, 200);
+  assert.equal(zs.usage.cacheRead, 300);
+  assert.equal(zs.usage.cost, 0.75);
+});
+
+test('token 用量：入库与按工具聚合', () => {
+  const rows = store.listSessions({ limit: 200 });
+  const zc = rows.find((s) => s.tool === 'zcode' && s.subId === 'sess_fixture1');
+  assert.ok(zc?.usage, '索引后 zcode 会话清单应带用量');
+  assert.equal(zc.usage.total, 1500);
+  const codexRow = rows.find((s) => s.tool === 'codex' && s.usage);
+  assert.ok(codexRow, 'codex 会话清单应带用量');
+
+  const byTool = Object.fromEntries(store.usageByTool().map((u) => [u.tool, u]));
+  assert.ok(byTool.zcode, 'zcode 应出现在用量聚合');
+  assert.equal(byTool.zcode.total, 1500);
+  assert.equal(byTool.zcode.withUsage, 1);
+  assert.ok((byTool.codex?.total ?? 0) > 0, 'codex 应出现在用量聚合');
+});
+
+test('token 用量：按天与按项目聚合', () => {
+  // 用大窗口避免测试日期漂移导致 fixture 会话出窗
+  const byDay = store.usageByDay(3650);
+  const day = byDay.find((d) => d.day === '2026-09-30');
+  assert.ok(day, 'zcode fixture 会话应计入按天聚合');
+  assert.equal(day.total, 1500, '该日用量应等于 zcode fixture 会话总量');
+
+  const byProject = store.usageByProject(10);
+  const proj = byProject.find((p) => p.project.includes('fixture') && p.total === 1500);
+  assert.ok(proj, '按项目聚合应含 zcode fixture 项目');
+  assert.equal(proj.withUsage, 1);
+  assert.ok(byProject.length >= 2, 'codex（cwd）与 zcode（directory）应各成一组');
+  assert.ok((byProject[0].total ?? 0) >= (byProject[byProject.length - 1].total ?? 0), '按用量降序');
+});
+
+test('CAS put 合并 SQLite -wal：运行中库不丢数据', () => {  const cas2 = new ContentStore(path.join(process.env.WALLE_HOME, 'objects2'));
   const src = path.join(fixtures, 'zcode', 'cli', 'waltest.sqlite');
   assert.ok(fs.existsSync(src + '-wal'), '固件应带未 checkpoint 的 -wal');
   const r1 = cas2.put(src);

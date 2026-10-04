@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { RawAsset, AssetRecord, AssetKind, ParsedDoc, SessionMetaRow, SearchHit, SessionListRow } from './types.js';
+import type { RawAsset, AssetRecord, AssetKind, ParsedDoc, SessionMetaRow, SearchHit, SessionListRow, TokenUsage, ToolUsageRow, UsageDayRow, UsageProjectRow } from './types.js';
 import { cjkTokenize, buildFtsQuery } from './tokenize.js';
 
 /**
@@ -170,6 +170,14 @@ export class WalleStore {
     }
     // v1 首建也走同一段 DDL（IF NOT EXISTS 幂等）
     this.db.exec(SCHEMA_V2);
+    if (current < 3) {
+      // v2→v3 增量迁移（P5.1 token 用量统计）：session_meta 增加用量列，可空不回填
+      for (const col of ['tokens_input', 'tokens_output', 'tokens_reasoning', 'tokens_cache_read', 'tokens_cache_write', 'tokens_total']) {
+        this.db.exec(`ALTER TABLE session_meta ADD COLUMN ${col} INTEGER`);
+      }
+      this.db.exec('ALTER TABLE session_meta ADD COLUMN tokens_cost REAL');
+      this.db.exec('PRAGMA user_version = 3');
+    }
   }
 
   // ---------- source / asset（P1 能力，保持不变） ----------
@@ -366,16 +374,25 @@ export class WalleStore {
 
   addSessionMeta(assetId: number, row: SessionMetaRow): void {
     // ON CONFLICT 用 COALESCE：后合并方（如 DB 标题来源）字段为 null 时保留先写入的值，不降级
+    const u = row.usage ?? {};
     this.db
       .prepare(
-        `INSERT INTO session_meta (asset_id, sub_id, started_at, title, model, message_count, project_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO session_meta (asset_id, sub_id, started_at, title, model, message_count, project_path,
+                                   tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, tokens_total, tokens_cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (asset_id, sub_id) DO UPDATE SET
            started_at = COALESCE(excluded.started_at, started_at), title = COALESCE(excluded.title, title),
            model = COALESCE(excluded.model, model), message_count = COALESCE(excluded.message_count, message_count),
-           project_path = COALESCE(excluded.project_path, project_path)`,
+           project_path = COALESCE(excluded.project_path, project_path),
+           tokens_input = COALESCE(excluded.tokens_input, tokens_input), tokens_output = COALESCE(excluded.tokens_output, tokens_output),
+           tokens_reasoning = COALESCE(excluded.tokens_reasoning, tokens_reasoning), tokens_cache_read = COALESCE(excluded.tokens_cache_read, tokens_cache_read),
+           tokens_cache_write = COALESCE(excluded.tokens_cache_write, tokens_cache_write), tokens_total = COALESCE(excluded.tokens_total, tokens_total),
+           tokens_cost = COALESCE(excluded.tokens_cost, tokens_cost)`,
       )
-      .run(assetId, row.subId, row.startedAt ?? null, row.title ?? null, row.model ?? null, row.messageCount ?? null, row.projectPath ?? null);
+      .run(
+        assetId, row.subId, row.startedAt ?? null, row.title ?? null, row.model ?? null, row.messageCount ?? null, row.projectPath ?? null,
+        u.input ?? null, u.output ?? null, u.reasoning ?? null, u.cacheRead ?? null, u.cacheWrite ?? null, u.total ?? null, u.cost ?? null,
+      );
   }
 
   /** 删除某资产某会话已入索引的标题文档（延迟合并改标题前去重，避免 ai-title 与 DB 标题双写） */
@@ -452,7 +469,7 @@ export class WalleStore {
     return r.id !== undefined ? num(r.id) : null;
   }
 
-  /** 会话清单（按开始时间倒序） */
+  /** 会话清单（按开始时间倒序），附 token 用量（可得字段如实填充） */
   listSessions(filter: { tool?: string; limit?: number } = {}): SessionListRow[] {
     const where: string[] = [];
     const params: (string | number)[] = [];
@@ -461,7 +478,8 @@ export class WalleStore {
       params.push(filter.tool);
     }
     const sql = `
-      SELECT sm.asset_id, sm.sub_id, s.tool, a.path asset_path, sm.title, sm.model, sm.started_at, sm.project_path, sm.message_count
+      SELECT sm.asset_id, sm.sub_id, s.tool, a.path asset_path, sm.title, sm.model, sm.started_at, sm.project_path, sm.message_count,
+             sm.tokens_input, sm.tokens_output, sm.tokens_reasoning, sm.tokens_cache_read, sm.tokens_cache_write, sm.tokens_total, sm.tokens_cost
       FROM session_meta sm
       JOIN asset a ON a.id = sm.asset_id
       JOIN source s ON s.id = a.source_id
@@ -471,6 +489,17 @@ export class WalleStore {
     params.push(filter.limit ?? 100);
     return (this.db.prepare(sql).all(...params) as unknown[]).map((raw) => {
       const r = toRow(raw);
+      const usage: TokenUsage | null = r.tokens_total == null && r.tokens_input == null && r.tokens_output == null && r.tokens_cost == null
+        ? null
+        : {
+            input: r.tokens_input == null ? null : num(r.tokens_input),
+            output: r.tokens_output == null ? null : num(r.tokens_output),
+            reasoning: r.tokens_reasoning == null ? null : num(r.tokens_reasoning),
+            cacheRead: r.tokens_cache_read == null ? null : num(r.tokens_cache_read),
+            cacheWrite: r.tokens_cache_write == null ? null : num(r.tokens_cache_write),
+            total: r.tokens_total == null ? null : num(r.tokens_total),
+            cost: r.tokens_cost == null ? null : Number(r.tokens_cost),
+          };
       return {
         assetId: num(r.asset_id),
         subId: String(r.sub_id),
@@ -481,8 +510,84 @@ export class WalleStore {
         startedAt: str(r.started_at),
         projectPath: str(r.project_path),
         messageCount: r.message_count == null ? null : num(r.message_count),
+        usage,
       };
     });
+  }
+
+  /** 按工具聚合 token 用量（总览页用量卡；仅统计 active 资产的会话） */
+  usageByTool(): ToolUsageRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT s.tool, COUNT(*) sessions,
+                SUM(CASE WHEN sm.tokens_total IS NOT NULL OR sm.tokens_input IS NOT NULL THEN 1 ELSE 0 END) with_usage,
+                SUM(sm.tokens_input) input, SUM(sm.tokens_output) output, SUM(sm.tokens_reasoning) reasoning,
+                SUM(sm.tokens_cache_read) cache_read, SUM(sm.tokens_cache_write) cache_write,
+                SUM(sm.tokens_total) total, SUM(sm.tokens_cost) cost
+         FROM session_meta sm
+         JOIN asset a ON a.id = sm.asset_id AND a.status = 'active'
+         JOIN source s ON s.id = a.source_id
+         GROUP BY s.tool ORDER BY s.tool`,
+      )
+      .all() as unknown[];
+    return (rows as Record<string, unknown>[]).map((r) => ({
+      tool: String(r.tool),
+      sessions: num(r.sessions),
+      withUsage: num(r.with_usage),
+      input: r.input == null ? null : num(r.input),
+      output: r.output == null ? null : num(r.output),
+      reasoning: r.reasoning == null ? null : num(r.reasoning),
+      cacheRead: r.cache_read == null ? null : num(r.cache_read),
+      cacheWrite: r.cache_write == null ? null : num(r.cache_write),
+      total: r.total == null ? null : num(r.total),
+      cost: r.cost == null ? null : Number(r.cost),
+    }));
+  }
+
+  /** 近 N 天逐日 token 用量（按会话开始时间归日，UTC；无数据的日期不返回） */
+  usageByDay(days = 30): UsageDayRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DATE(sm.started_at) day, SUM(sm.tokens_input) input, SUM(sm.tokens_output) output, SUM(sm.tokens_total) total
+         FROM session_meta sm
+         JOIN asset a ON a.id = sm.asset_id AND a.status = 'active'
+         WHERE sm.started_at IS NOT NULL
+           AND sm.tokens_total IS NOT NULL
+           AND DATE(sm.started_at) >= DATE('now', '-' || ? || ' days')
+         GROUP BY day ORDER BY day`,
+      )
+      .all(days) as unknown[];
+    return (rows as Record<string, unknown>[]).map((r) => ({
+      day: String(r.day),
+      input: r.input == null ? null : num(r.input),
+      output: r.output == null ? null : num(r.output),
+      total: r.total == null ? null : num(r.total),
+    }));
+  }
+
+  /** 按项目聚合 token 用量（Top N；project_path 归一化掉 Windows \\?\ 前缀） */
+  usageByProject(limit = 10): UsageProjectRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT sm.project_path project, COUNT(*) sessions,
+                SUM(CASE WHEN sm.tokens_total IS NOT NULL THEN 1 ELSE 0 END) with_usage,
+                SUM(sm.tokens_input) input, SUM(sm.tokens_output) output, SUM(sm.tokens_total) total
+         FROM session_meta sm
+         JOIN asset a ON a.id = sm.asset_id AND a.status = 'active'
+         WHERE sm.project_path IS NOT NULL
+         GROUP BY project
+         HAVING SUM(sm.tokens_total) IS NOT NULL
+         ORDER BY total DESC LIMIT ?`,
+      )
+      .all(limit) as unknown[];
+    return (rows as Record<string, unknown>[]).map((r) => ({
+      project: String(r.project ?? '').replace(/^\\\\\?\\/, ''),
+      sessions: num(r.sessions),
+      withUsage: num(r.with_usage),
+      input: r.input == null ? null : num(r.input),
+      output: r.output == null ? null : num(r.output),
+      total: r.total == null ? null : num(r.total),
+    }));
   }
 
   close(): void {

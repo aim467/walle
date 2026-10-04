@@ -55,6 +55,10 @@ write(
     JSON.stringify({ timestamp: '2026-07-08T05:58:20Z', ordinal: 5, type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'call_fx2', input: '*** Begin Patch\n*** Update File: src/foo.py\n+print(1)\n*** End Patch' } }) +
     '\n' +
     JSON.stringify({ timestamp: '2026-07-08T05:58:21Z', ordinal: 6, type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call_fx2', output: 'Done!' } }) +
+    '\n' +
+    JSON.stringify({ timestamp: '2026-07-08T05:58:30Z', ordinal: 7, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 30, cache_write_input_tokens: 5, output_tokens: 50, reasoning_output_tokens: 20, total_tokens: 150 }, last_token_usage: { input_tokens: 100, cached_input_tokens: 30, cache_write_input_tokens: 5, output_tokens: 50, reasoning_output_tokens: 20, total_tokens: 150 }, model_context_window: 258400 } } }) +
+    '\n' +
+    JSON.stringify({ timestamp: '2026-07-08T05:59:00Z', ordinal: 8, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 300, cached_input_tokens: 60, cache_write_input_tokens: 10, output_tokens: 90, reasoning_output_tokens: 40, total_tokens: 390 }, last_token_usage: { input_tokens: 200, cached_input_tokens: 30, cache_write_input_tokens: 5, output_tokens: 40, reasoning_output_tokens: 20, total_tokens: 240 }, model_context_window: 258400 } } }) +
     '\n',
 );
 // rules / skills
@@ -82,14 +86,17 @@ INSERT INTO threads (title, cwd, model, tokens_used, created_at, updated_at) VAL
 // ---------- zcode ----------
 {
   const db = openDb('zcode/cli/db/db.sqlite');
-  db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, path TEXT, version TEXT, time_created TEXT);
+  // zcode 真机 schema：session 表项目列名是 directory（非 path），parseFamilyDb 据此读 projectPath
+  db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, version TEXT, time_created TEXT);
 CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
 CREATE TABLE part (id INTEGER PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
-INSERT INTO session (id, title, path, version, time_created) VALUES ('sess_fixture1', 'fixture 会话', 'D:\\CodingProject\\walle', '0.16.9', '2026-09-30T10:00:00Z');
+INSERT INTO session (id, title, directory, version, time_created) VALUES ('sess_fixture1', 'fixture 会话', 'D:\\fixture\\proj', '0.16.9', '2026-09-30T10:00:00Z');
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (1, 'sess_fixture1', '{"role":"user"}', 0, '2026-09-30T10:00:01Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (1, '1', 'sess_fixture1', '{"type":"text","text":"fixture prompt：帮我检查语义检索的阈值配置"}', 0, '2026-09-30T10:00:01Z');
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (2, 'sess_fixture1', '{"role":"assistant"}', 1, '2026-09-30T10:00:02Z');
-INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (2, '2', 'sess_fixture1', '{"type":"tool","callID":"call_fx","tool":"Read","state":{"status":"completed","input":{"file_path":"D:\\\\fixture\\\\proj\\\\config.json"},"output":"config content"}}', 0, '2026-09-30T10:00:03Z');`);
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (2, '2', 'sess_fixture1', '{"type":"tool","callID":"call_fx","tool":"Read","state":{"status":"completed","input":{"file_path":"D:\\\\fixture\\\\proj\\\\config.json"},"output":"config content"}}', 0, '2026-09-30T10:00:03Z');
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (3, '2', 'sess_fixture1', '{"type":"step-finish","reason":"tool-calls","cost":0.5,"tokens":{"total":1000,"input":900,"output":100,"reasoning":50,"cache":{"read":200,"write":30}}}', 1, '2026-09-30T10:00:04Z');
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (4, '2', 'sess_fixture1', '{"type":"step-finish","reason":"end-turn","cost":0.25,"tokens":{"total":500,"input":400,"output":100,"reasoning":10,"cache":{"read":100,"write":0}}}', 2, '2026-09-30T10:00:05Z');`);
   db.close();
 }
 write(

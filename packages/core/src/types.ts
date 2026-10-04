@@ -60,6 +60,18 @@ export interface ParsedDoc {
   text: string;
 }
 
+/** 会话 token 用量（工具能提供的字段如实填充，取不到为 null——不硬造） */
+export interface TokenUsage {
+  input?: number | null;
+  output?: number | null;
+  reasoning?: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
+  total?: number | null;
+  /** 成本数值，单位/币种由来源工具定义 */
+  cost?: number | null;
+}
+
 export interface SessionMetaRow {
   subId: string;
   startedAt?: string | null;
@@ -67,6 +79,7 @@ export interface SessionMetaRow {
   model?: string | null;
   projectPath?: string | null;
   messageCount?: number | null;
+  usage?: TokenUsage | null;
   /**
    * 标题来源记录（如 Codex session_index/state_5）：本身无消息文档。
    * 索引器会把 meta 合并到同工具下 path 含 subId 的会话资产上，而非挂在当前资产。
@@ -103,6 +116,39 @@ export interface SessionListRow {
   startedAt: string | null;
   projectPath: string | null;
   messageCount: number | null;
+  usage: TokenUsage | null;
+}
+
+/** 按工具聚合的 token 用量（store.usageByTool） */
+export interface ToolUsageRow {
+  tool: string;
+  sessions: number;
+  withUsage: number;
+  input: number | null;
+  output: number | null;
+  reasoning: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  total: number | null;
+  cost: number | null;
+}
+
+/** 逐日 token 用量（store.usageByDay，无数据的日期不返回） */
+export interface UsageDayRow {
+  day: string;
+  input: number | null;
+  output: number | null;
+  total: number | null;
+}
+
+/** 按项目聚合的 token 用量（store.usageByProject） */
+export interface UsageProjectRow {
+  project: string;
+  sessions: number;
+  withUsage: number;
+  input: number | null;
+  output: number | null;
+  total: number | null;
 }
 
 export interface IndexStats {
