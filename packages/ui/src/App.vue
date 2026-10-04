@@ -4,6 +4,7 @@ import { NConfigProvider, NMessageProvider, darkTheme, type GlobalThemeOverrides
 import Overview from './views/Overview.vue';
 import Assets from './views/Assets.vue';
 import Sessions from './views/Sessions.vue';
+import Skills from './views/Skills.vue';
 import Settings from './views/Settings.vue';
 import walleMark from './assets/walle-mark.svg';
 
@@ -14,6 +15,7 @@ const nav = [
   { path: '/', label: '总览', icon: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z' },
   { path: '/assets', label: '资产库', icon: 'M3 5a2 2 0 012-2h5l2 2h7a2 2 0 012 2v11a2 2 0 01-2 2H5a2 2 0 01-2-2z' },
   { path: '/sessions', label: '会话', icon: 'M4 4h16a2 2 0 012 2v9a2 2 0 01-2 2H9l-5 4V6a2 2 0 012-2z' },
+  { path: '/skills', label: '技能', icon: 'M13.6 21.3l-2.1-2.1a2 2 0 010-2.8 2 2 0 000-2.9 2 2 0 00-2.9 0 2 2 0 01-2.8 0L3.7 11.4a1.5 1.5 0 010-2.1l2.5-2.5a1 1 0 011.4 0l1.3 1.3a1.6 1.6 0 002.3-2.3L9.9 4.5a1 1 0 010-1.4L12.4.6a1.5 1.5 0 012.1 0l2.1 2.1a2 2 0 002.8 0 2 2 0 012.9 0 2 2 0 000 2.8l2.1 2.1a1.5 1.5 0 010 2.1l-2.5 2.5a1 1 0 01-1.4 0l-1.3-1.3a1.6 1.6 0 00-2.3 2.3l1.3 1.3a1 1 0 010 1.4l-2.5 2.5a1.5 1.5 0 01-2.1 0z' },
   { path: '/settings', label: '设置', icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zm8.4 4a8.4 8.4 0 00-.1-1.3l2-1.6-2-3.4-2.4 1a8.5 8.5 0 00-2.2-1.3L15.3 3h-4l-.4 2.4a8.5 8.5 0 00-2.2 1.3l-2.4-1-2 3.4 2 1.6a8.4 8.4 0 000 2.6l-2 1.6 2 3.4 2.4-1a8.5 8.5 0 002.2 1.3l.4 2.4h4l.4-2.4a8.5 8.5 0 002.2-1.3l2.4 1 2-3.4-2-1.6c.07-.43.1-.86.1-1.3z' },
 ];
 
@@ -70,6 +72,7 @@ onMounted(async () => {
             <Overview v-if="route === '/'" />
             <Assets v-else-if="route.startsWith('/assets')" />
             <Sessions v-else-if="route.startsWith('/sessions')" />
+            <Skills v-else-if="route.startsWith('/skills')" />
             <Settings v-else-if="route.startsWith('/settings')" />
             <div v-else class="dim" style="padding-top:120px;text-align:center">404</div>
           </main>

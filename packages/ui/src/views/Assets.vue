@@ -6,6 +6,7 @@ import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
+import agentsLogo from '../assets/logos/agents.svg';
 
 interface Asset {
   id: number; tool: string; kind: string; name: string | null; path: string;
@@ -18,8 +19,8 @@ const kindLabel: Record<string, string> = {
   config: '配置', memory: '记忆', skill: 'Skill', mcp: 'MCP', rule: '规则',
   agent: '子代理', plugin: '插件', secret: '凭证', other: '其他',
 };
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo };
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy', agents: 'Skills 共享库' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, agents: agentsLogo };
 
 /** 资产类型图标（24×24 描边 path，lucide 风格；未知类型回退到「盒子」） */
 const ICON_PATHS: Record<string, string[]> = {
@@ -40,7 +41,7 @@ const EXCLUDED_KINDS = new Set(['session', 'prompt']);
 /** ZCode 模型 I/O 遥测也属会话数据（kind=other），一并移交会话页 */
 const isSessionAsset = (a: Asset) => EXCLUDED_KINDS.has(a.kind) || a.path.includes('model-io-');
 
-const TOOLS = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy'];
+const TOOLS = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'agents'];
 /** 资产类型的固定展示顺序（只渲染实际存在的类型） */
 const KIND_ORDER = ['skill', 'config', 'memory', 'rule', 'secret', 'mcp', 'agent', 'plugin', 'other'];
 const sortOptions = [

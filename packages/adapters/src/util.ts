@@ -15,11 +15,14 @@ export interface WalkOptions {
   maxDepth?: number;
 }
 
-/** 递归遍历 root/sub，产出相对 sub 的正斜杠路径 */
+/** 递归遍历 root/sub，产出相对 sub 的正斜杠路径。
+ *  符号链接跟随解析（如 skills CLI 把 ~/.agents/skills 的技能链接进各工具目录）；
+ *  已解析目录记入 realpath 集合防环。 */
 export function* walkFiles(root: string, sub: string, opts: WalkOptions = {}): Generator<{ abs: string; rel: string }> {
   const base = path.join(root, sub);
   if (!fs.existsSync(base)) return;
   const ignore = new Set([...(opts.ignoreDirNames ?? []), 'node_modules']);
+  const seenDirs = new Set<string>();
   const rec = function* (dir: string, relDir: string, depth: number): Generator<{ abs: string; rel: string }> {
     if (opts.maxDepth !== undefined && depth > opts.maxDepth) return;
     let entries: fs.Dirent[];
@@ -31,10 +34,27 @@ export function* walkFiles(root: string, sub: string, opts: WalkOptions = {}): G
     for (const e of entries) {
       const abs = path.join(dir, e.name);
       const rel = relDir ? `${relDir}/${e.name}` : e.name;
-      if (e.isDirectory()) {
+      let isDir = e.isDirectory();
+      let isFile = e.isFile();
+      if (!isDir && !isFile) {
+        // 符号链接/特殊文件：stat 跟随判定类型；目录记 realpath 防环（文件不去重，允许同内容多处入链）
+        try {
+          const st = fs.statSync(abs);
+          isDir = st.isDirectory();
+          isFile = st.isFile();
+          if (isDir) {
+            const real = fs.realpathSync(abs);
+            if (seenDirs.has(real)) continue;
+            seenDirs.add(real);
+          }
+        } catch {
+          continue; // 悬空链接等不可解析项跳过
+        }
+      }
+      if (isDir) {
         if (ignore.has(e.name)) continue;
         yield* rec(abs, rel, depth + 1);
-      } else if (e.isFile()) {
+      } else if (isFile) {
         yield { abs, rel };
       }
     }

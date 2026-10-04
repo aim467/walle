@@ -27,6 +27,7 @@ const roots = {
   cursor: path.join(fixtures, 'cursor'),
   opencode: path.join(fixtures, 'opencode'),
   workbuddy: path.join(fixtures, 'workbuddy'),
+  agents: path.join(fixtures, 'agents-store'),
 };
 
 test('敏感工具函数', () => {
@@ -374,7 +375,33 @@ test('token 用量：按天与按项目聚合', () => {
   assert.ok((byProject[0].total ?? 0) >= (byProject[byProject.length - 1].total ?? 0), '按用量降序');
 });
 
-test('CAS put 合并 SQLite -wal：运行中库不丢数据', () => {  const cas2 = new ContentStore(path.join(process.env.WALLE_HOME, 'objects2'));
+test('符号链接 skills：共享技能库链接进工具目录应被发现（walkFiles 防环）', () => {
+  const all = store.listAssets({ tool: 'zcode', limit: 500 });
+  // Windows 无特权环境建不了符号链接（固件退化为真实目录），按标记决定断言深度
+  const symlinksOk = fs.existsSync(path.join(fixtures, 'zcode', 'skills', '.symlinks-ok'));
+  const linked = all.find((a) => a.kind === 'skill' && a.name === 'linked-skill');
+  assert.ok(linked, '链接进 zcode/skills 的共享技能应作为 skill 资产入库');
+  assert.equal(linked.path, 'skills/linked-skill/SKILL.md');
+  if (symlinksOk) {
+    const content = cas.get(linked.contentHash)?.toString('utf8') ?? '';
+    assert.ok(content.includes('shared skill store body'), '内容应跟随链接读到共享库本体');
+  }
+  // 防环：fixtures 中 loop-a ↔ loop-b 互链，扫描能正常完成（跑到这里即未死循环），且不产出环内路径资产
+  assert.ok(!all.some((a) => a.path.includes('loop-a/to-') || a.path.includes('loop-b/to-')), '互链目录不应产出重复资产');
+});
+
+test('agents 共享技能库：本体与登记文件入库', () => {
+  const all = store.listAssets({ tool: 'agents', limit: 100 });
+  const linked = all.find((a) => a.kind === 'skill' && a.path === 'skills/linked-skill/SKILL.md');
+  const solo = all.find((a) => a.kind === 'skill' && a.path === 'skills/solo-skill/SKILL.md');
+  assert.ok(linked, '共享库技能本体应入库（含已链接者）');
+  assert.ok(solo, '未被链接的技能也应入库');
+  const lock = all.find((a) => a.name === 'skill-lock');
+  assert.ok(lock, '.skill-lock.json 应入库');
+});
+
+test('CAS put 合并 SQLite -wal：运行中库不丢数据', () => {
+  const cas2 = new ContentStore(path.join(process.env.WALLE_HOME, 'objects2'));
   const src = path.join(fixtures, 'zcode', 'cli', 'waltest.sqlite');
   assert.ok(fs.existsSync(src + '-wal'), '固件应带未 checkpoint 的 -wal');
   const r1 = cas2.put(src);

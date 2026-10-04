@@ -16,6 +16,7 @@
 | `cli/memories/projects/<project-hash>/memory/*.md` | memory | Markdown | 低 | 记忆文件 + `MEMORY.md` 索引，人类可读，带 frontmatter |
 | `cli/agents/sess_*/agent_*/` | agent | 目录（metadata.json / output.txt / task.output） | 低 | 子代理运行记录，按会话 id 组织 |
 | `cli/artifacts/sess_*/call_*-tool-result-*.json` | other | JSON | 中 | 工具调用结果转储，按会话组织。**2026-10-04 起不再入库（降噪）**：正文本就在 db.sqlite 的 tool part 中；需要原文时由会话详情 Files 页签按需读取（/api/artifacts） |
+| `skills/<name>/SKILL.md` | skill | Markdown | 低 | 用户技能（2026-10-04 起接入）。skills CLI 把 `~/.agents/skills` 共享库**符号链接**到此，适配器经 walkFiles 跟随链接取本体内容（realpath 防环）；只收 SKILL.md |
 | `cli/plugins/known_marketplaces.json` | plugin | JSON | 极低 | 插件市场登记 |
 | `cli/plugins/{cache,data,marketplaces}/` | plugin | 目录 | 低 | 插件缓存与安装明细（本机 385 文件，官方市场 11 个插件）。P1 只记顶层清单，明细 P2 再入库 |
 | `v2/credentials.json` | secret | JSON | 极低 | **高敏感**：OAuth access_token、JWT、api-key（键名实测：`oauth:bigmodel:access_token`、`zcodejwttoken`、`account-provider:...:api-key` 等）⚠️ |

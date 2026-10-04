@@ -6,6 +6,7 @@ import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
+import agentsLogo from '../assets/logos/agents.svg';
 
 interface SourceInfo {
   tool: string; displayName: string; rootPath: string; lastScannedAt: string | null;
@@ -23,8 +24,8 @@ interface ToolUsage {
 interface UsageDay { day: string; input: number | null; output: number | null; total: number | null }
 interface UsageProject { project: string; sessions: number; withUsage: number; input: number | null; output: number | null; total: number | null }
 
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo };
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy', agents: 'Skills 共享库' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, agents: agentsLogo };
 
 const sources = ref<SourceInfo[]>([]);
 const allowWrite = ref(false);

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Walle · 技能管理原型</title>
+<style>
+:root{
+  --bg:#f5f6f8;--panel:#fff;--panel2:#fafbfc;--line:#e6e8ec;--line2:#eef0f3;
+  --text:#202124;--muted:#737780;--muted2:#9aa0a8;--blue:#1677ff;--blue2:#eaf3ff;
+  --green:#18a566;--green2:#eaf8f1;--orange:#e58a18;--orange2:#fff5e6;
+  --red:#df4b4b;--red2:#fff0f0;--shadow:0 8px 28px rgba(28,34,44,.07);
+  --radius:14px;
+}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{font-family:Inter,"Microsoft YaHei","PingFang SC",Arial,sans-serif;color:var(--text);background:var(--bg);font-size:13px}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+.app{height:100vh;display:flex;overflow:hidden}
+.sidebar{width:204px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;flex:none}
+.brand{height:72px;padding:18px 16px;display:flex;gap:10px;align-items:center}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(145deg,#111d5c,#485bd7);display:grid;place-items:center;box-shadow:0 4px 10px rgba(42,59,160,.2)}
+.logo svg{width:22px;height:22px}
+.brand-name{font-weight:750;font-size:16px;letter-spacing:.2px}.brand-sub{font-size:10px;color:var(--muted2);margin-top:2px}
+.nav{padding:8px 9px}.nav-item{height:38px;border-radius:9px;display:flex;align-items:center;gap:11px;padding:0 12px;color:#45484e;margin-bottom:3px;transition:.15s}
+.nav-item:hover{background:#f4f6f8}.nav-item.active{background:var(--blue);color:#fff;font-weight:650}
+.nav-icon{width:16px;height:16px;display:grid;place-items:center}.nav-icon svg{width:16px;height:16px}
+.side-bottom{margin-top:auto;padding:16px 20px 18px;border-top:1px solid var(--line2);color:var(--muted2);font-size:10px;line-height:1.6}
+.main{min-width:0;flex:1;display:flex;flex-direction:column}
+.topbar{height:76px;padding:20px 26px 10px;display:flex;align-items:flex-start;justify-content:space-between}
+.title h1{margin:0;font-size:21px;line-height:28px;letter-spacing:-.3px}.title p{margin:4px 0 0;color:var(--muted);font-size:11px}
+.actions{display:flex;gap:8px;align-items:center}.btn{border:1px solid var(--line);background:#fff;height:32px;padding:0 12px;border-radius:8px;color:#3d4148}.btn:hover{background:#f7f8fa}.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}.btn.primary:hover{filter:brightness(.96)}.btn.icon{width:32px;padding:0;display:grid;place-items:center}.btn svg{width:15px;height:15px}
+.workspace{flex:1;min-height:0;display:grid;grid-template-columns:380px minmax(0,1fr);gap:14px;padding:4px 26px 22px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:15px;min-height:0;box-shadow:0 2px 12px rgba(30,35,45,.025)}
+.list-panel{display:flex;flex-direction:column;overflow:hidden}
+.list-tools{padding:10px;border-bottom:1px solid var(--line2)}
+.search{height:36px;border:1px solid #dfe3e8;border-radius:9px;background:#fff;display:flex;align-items:center;padding:0 10px;gap:8px}.search:focus-within{border-color:#8ebcff;box-shadow:0 0 0 3px #eaf3ff}
+.search svg{width:15px;color:#9aa0a8}.search input{border:0;outline:0;flex:1;min-width:0;color:var(--text);background:transparent}.search input::placeholder{color:#a3a8af}
+.filter-row{display:flex;gap:6px;margin-top:9px;overflow:auto;padding-bottom:2px}.chip{height:26px;padding:0 9px;border:1px solid #e2e5e9;background:#fff;border-radius:13px;color:#6c7077;white-space:nowrap}.chip:hover{background:#f6f8fa}.chip.active{background:var(--blue2);border-color:#9ec5ff;color:#1468db;font-weight:650}
+.advanced{display:flex;gap:7px;margin-top:8px}.select-mini{height:28px;border:1px solid var(--line);border-radius:7px;background:#fff;padding:0 7px;color:#6e7279;outline:0;flex:1}
+.list-summary{padding:7px 12px 5px;color:var(--muted2);font-size:11px;display:flex;justify-content:space-between}
+.skill-list{overflow:auto;flex:1;padding:0 8px 8px}
+.skill-card{padding:11px 10px;border:1px solid transparent;border-radius:10px;margin-bottom:3px;transition:.12s;cursor:pointer}.skill-card:hover{background:#f8fafc}.skill-card.selected{background:#f7fbff;border-color:#6daaff;box-shadow:0 2px 8px rgba(22,119,255,.06)}
+.skill-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.skill-name{font-size:14px;font-weight:700}.skill-count{font-size:11px;color:var(--muted2);white-space:nowrap}
+.skill-desc{margin-top:5px;color:#747981;font-size:11px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.meta{display:flex;gap:5px;margin-top:7px;align-items:center;flex-wrap:wrap}.tag{height:19px;padding:0 7px;border-radius:10px;background:#f0f2f4;color:#666b73;font-size:10px;display:inline-flex;align-items:center}.tag.blue{background:#eaf3ff;color:#1670e8}.tag.green{background:var(--green2);color:#168455}.tag.warn{background:var(--orange2);color:#b56a08}.dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:4px}.dot.warn{background:var(--orange)}.dot.red{background:var(--red)}
+.detail{display:flex;flex-direction:column;overflow:hidden}
+.detail-head{padding:17px 17px 0;border-bottom:1px solid var(--line2)}
+.detail-title-row{display:flex;justify-content:space-between;gap:15px}.detail-title{font-size:19px;font-weight:750}.detail-desc{color:#6f747b;margin-top:6px;line-height:1.5;max-width:950px}
+.pathbar{margin-top:11px;background:#f5f6f8;border:1px solid #eceef1;border-radius:8px;height:32px;display:flex;align-items:center;padding:0 10px;color:#5f646b;font-family:Consolas,monospace;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail-meta{display:flex;gap:18px;margin:12px 0 14px;color:#737880;font-size:11px;flex-wrap:wrap}.detail-meta strong{color:#3e4248;font-weight:600}
+.tabs{display:flex;gap:3px;margin:0 -2px}.tab{height:36px;border:0;background:transparent;padding:0 13px;color:#777b82;border-bottom:2px solid transparent}.tab:hover{color:#333}.tab.active{color:#1670e8;border-bottom-color:#1677ff;font-weight:650}
+.detail-body{min-height:0;flex:1;overflow:auto;padding:16px}
+.section-title{font-size:13px;font-weight:700;margin-bottom:10px}.section-sub{color:var(--muted);font-size:11px;margin:-4px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.info-card{border:1px solid var(--line2);border-radius:10px;padding:13px;background:#fff}.info-label{font-size:10px;color:var(--muted2);margin-bottom:6px}.info-value{font-size:12px;font-weight:600;word-break:break-all}.status{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:8px;background:var(--green2);color:#138052;font-size:11px;font-weight:600}
+.source-card{border:1px solid var(--line2);border-radius:11px;overflow:hidden;margin-bottom:14px}.source-row{display:grid;grid-template-columns:150px 110px minmax(0,1fr) 70px;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line2);font-size:11px}.source-row:last-child{border-bottom:0}.source-head{background:#fafbfc;color:#767b82}.source-path{font-family:Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool-boxes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.tool-box{border:1px solid var(--line);border-radius:10px;padding:11px;background:#fff;position:relative}.tool-box.connected{border-color:#cfe6da}.tool-name{font-weight:650;font-size:12px}.tool-sub{font-size:10px;color:var(--muted2);margin-top:4px}.tool-state{margin-top:9px;font-size:10px;color:#188354}.tool-state.off{color:#9b9fa5}
+.md-wrap{height:100%;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:11px;overflow:hidden}.md-toolbar{height:40px;background:#fafbfc;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 10px}.md-toolbar-left{display:flex;gap:6px;align-items:center}.file-pill{font-family:Consolas,monospace;font-size:11px;color:#555b63}.md-content{padding:22px 30px;overflow:auto;line-height:1.7;max-width:1100px;width:100%;margin:auto}.md-content h1{font-size:24px;margin:0 0 14px}.md-content h2{font-size:18px;margin:24px 0 10px}.md-content h3{font-size:14px;margin:18px 0 8px}.md-content p{color:#4e535a}.md-content li{margin:6px 0;color:#4e535a}.code{font-family:Consolas,monospace;background:#f5f6f8;border:1px solid #e8eaed;border-radius:7px;padding:10px 12px;color:#555;font-size:11px}
+.tree{border:1px solid var(--line2);border-radius:11px;overflow:hidden}.tree-row{height:38px;display:flex;align-items:center;padding:0 12px;gap:8px;border-bottom:1px solid var(--line2)}.tree-row:last-child{border-bottom:0}.tree-row:hover{background:#fafbfc}.tree-icon{width:16px;color:#7b8188}.tree-name{flex:1}.tree-size{color:var(--muted2);font-size:10px}.indent1{padding-left:35px}.indent2{padding-left:58px}
+.usage{display:grid;grid-template-columns:1fr 1fr;gap:12px}.usage-card{border:1px solid var(--line);border-radius:11px;padding:15px}.usage-top{display:flex;justify-content:space-between}.usage-tool{font-weight:700}.usage-version{color:var(--muted2);font-size:10px}.usage-line{height:7px;background:#eef0f3;border-radius:5px;margin:12px 0 8px;overflow:hidden}.usage-line i{display:block;height:100%;background:#4c91ef;border-radius:5px}.usage-foot{display:flex;justify-content:space-between;color:var(--muted2);font-size:10px}
+.overlay{position:fixed;inset:0;background:rgba(20,24,31,.38);display:none;align-items:center;justify-content:center;z-index:50}.overlay.show{display:flex}.modal{width:540px;max-width:calc(100vw - 30px);background:#fff;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.18);overflow:hidden}.modal.wide{width:720px}.modal-head{height:56px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.modal-title{font-size:15px;font-weight:700}.modal-body{padding:18px}.modal-foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}.form-row{margin-bottom:14px}.form-label{font-size:11px;font-weight:650;margin-bottom:6px;display:block}.input,.textarea{width:100%;border:1px solid #dfe3e8;border-radius:8px;padding:9px 10px;outline:0}.input:focus,.textarea:focus{border-color:#82b7ff;box-shadow:0 0 0 3px #eaf3ff}.textarea{min-height:90px;resize:vertical}.form-help{font-size:10px;color:var(--muted2);margin-top:5px}.radio-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.radio-card{border:1px solid var(--line);border-radius:9px;padding:11px;cursor:pointer}.radio-card.active{border-color:#7eb1ff;background:#f5f9ff}.radio-card strong{display:block;font-size:12px}.radio-card span{font-size:10px;color:var(--muted2);display:block;margin-top:3px}
+.menu{position:fixed;z-index:70;background:#fff;border:1px solid var(--line);box-shadow:0 14px 40px rgba(0,0,0,.14);border-radius:9px;padding:5px;display:none;min-width:150px}.menu.show{display:block}.menu-item{height:34px;border-radius:6px;padding:0 10px;display:flex;align-items:center;color:#4b4f55}.menu-item:hover{background:#f3f6f9}.menu-item.danger{color:var(--red)}.menu-sep{height:1px;background:var(--line2);margin:4px 0}
+.toast{position:fixed;right:25px;bottom:24px;background:#22262c;color:#fff;padding:10px 14px;border-radius:9px;box-shadow:0 8px 30px rgba(0,0,0,.2);font-size:12px;opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s;z-index:100}.toast.show{opacity:1;transform:none}
+.empty{padding:40px 20px;text-align:center;color:var(--muted2)}.empty strong{display:block;color:#555;margin-bottom:6px}
+@media(max-width:1000px){.workspace{grid-template-columns:320px 1fr}.tool-boxes{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:780px){.sidebar{width:62px}.brand-name,.brand-sub,.nav-item span,.side-bottom{display:none}.brand{justify-content:center}.nav-item{justify-content:center;padding:0}.workspace{grid-template-columns:1fr}.list-panel{display:none}.topbar{padding-left:16px;padding-right:16px}.workspace{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.6"><rect x="4" y="5" width="16" height="14" rx="4"/><path d="M8 9h8M8 12h5M9 16h6"/><circle cx="17" cy="12" r="1"/></svg></div>
+      <div><div class="brand-name">walle</div><div class="brand-sub">瓦力 · 6 个数据源</div></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item"><div class="nav-icon">▦</div><span>总览</span></div>
+      <div class="nav-item"><div class="nav-icon">▰</div><span>资产库</span></div>
+      <div class="nav-item"><div class="nav-icon">▰</div><span>会话</span></div>
+      <div class="nav-item active"><div class="nav-icon">✣</div><span>技能</span></div>
+      <div class="nav-item"><div class="nav-icon">⚙</div><span>设置</span></div>
+    </nav>
+    <div class="side-bottom">纯本地 · 无遥测<br>Phase 0-4 · UI-1</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title">
+        <h1>技能管理</h1>
+        <p>跨工具技能全量 · 共享库 3 · 合作接入 2 / 共 39 项</p>
+      </div>
+      <div class="actions">
+        <button class="btn primary" onclick="openModal('createModal')">＋ 新建技能</button>
+        <button class="btn" onclick="openModal('importModal')">↓ 导入技能</button>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="panel list-panel">
+        <div class="list-tools">
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <input id="search" placeholder="搜索技能名称、描述..." oninput="renderList()">
+          </div>
+          <div class="filter-row" id="statusChips">
+            <button class="chip active" data-status="all" onclick="setStatus(this)">全部</button>
+            <button class="chip" data-status="installed" onclick="setStatus(this)">已安装</button>
+            <button class="chip" data-status="update" onclick="setStatus(this)">有更新</button>
+            <button class="chip" data-status="conflict" onclick="setStatus(this)">冲突</button>
+          </div>
+          <div class="advanced">
+            <select class="select-mini" id="sourceFilter" onchange="renderList()">
+              <option value="all">来源：全部</option><option>Skills 共享库</option><option>Codex CLI</option><option>ZCode</option><option>Cursor</option><option>OpenCode</option><option>WorkBuddy</option>
+            </select>
+            <select class="select-mini" id="sortFilter" onchange="renderList()">
+              <option value="default">排序：最近使用</option><option value="name">名称 A-Z</option><option value="size">文件大小</option><option value="count">接入数量</option>
+            </select>
+          </div>
+        </div>
+        <div class="list-summary"><span id="resultCount">39 个技能</span><span>本地索引已更新</span></div>
+        <div class="skill-list" id="skillList"></div>
+      </div>
+
+      <div class="panel detail">
+        <div class="detail-head">
+          <div class="detail-title-row">
+            <div>
+              <div class="detail-title" id="detailName">find-skills</div>
+              <div class="detail-desc" id="detailDesc">Helps users discover and install agent skills when they ask questions like “how do I do X”, “find a skill for X”, “is there a skill that can...”, or express interest in extending capabilities.</div>
+            </div>
+            <div class="actions">
+              <button class="btn" onclick="openModal('editModal')">编辑</button>
+              <button class="btn icon" id="moreBtn" onclick="toggleMenu(event)" aria-label="更多">···</button>
+            </div>
+          </div>
+          <div class="pathbar" id="detailPath">C:\Users\Administrator\.agents\skills\find-skills</div>
+          <div class="detail-meta">
+            <span>状态 <strong><span class="dot"></span>已安装</strong></span>
+            <span>版本 <strong>1.2.0</strong></span>
+            <span>来源 <strong>Skills 共享库</strong></span>
+            <span>大小 <strong>5.5 KB</strong></span>
+          </div>
+          <div class="tabs">
+            <button class="tab active" data-tab="overview" onclick="switchTab(this)">概览</button>
+            <button class="tab" data-tab="markdown" onclick="switchTab(this)">SKILL.md</button>
+            <button class="tab" data-tab="files" onclick="switchTab(this)">文件</button>
+            <button class="tab" data-tab="usage" onclick="switchTab(this)">使用情况</button>
+          </div>
+        </div>
+
+        <div class="detail-body" id="detailBody"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="menu" id="moreMenu">
+  <div class="menu-item" onclick="toast('已复制 Skill 标识')">复制 Skill 标识</div>
+  <div class="menu-item" onclick="toast('已打开所在目录（原型）')">打开所在目录</div>
+  <div class="menu-item" onclick="toast('正在重新扫描文件…')">重新扫描</div>
+  <div class="menu-item" onclick="openModal('syncModal')">同步到工具</div>
+  <div class="menu-item" onclick="toast('导出任务已创建')">导出技能</div>
+  <div class="menu-sep"></div>
+  <div class="menu-item danger" onclick="closeMenu();openModal('deleteModal')">删除技能</div>
+</div>
+
+<!-- Create -->
+<div class="overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">新建技能</div><button class="btn icon" onclick="closeModal('createModal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label class="form-label">技能名称</label><input class="input" placeholder="例如：pdf-proofread"></div>
+      <div class="form-row"><label class="form-label">描述</label><textarea class="textarea" placeholder="描述这个技能解决什么问题，以及什么时候应该使用它"></textarea></div>
+      <div class="form-row"><label class="form-label">创建位置</label><div class="radio-grid">
+        <div class="radio-card active"><strong>本地技能目录</strong><span>创建在 Walle 管理的本地目录</span></div>
+        <div class="radio-card"><strong>共享技能库</strong><span>创建后可被多个 AI 工具使用</span></div>
+      </div></div>
+      <div class="form-row"><label class="form-label">接入工具</label><div class="filter-row"><button class="chip active">Cursor</button><button class="chip active">ZCode</button><button class="chip">Codex CLI</button><button class="chip">OpenCode</button></div></div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('createModal')">取消</button><button class="btn primary" onclick="closeModal('createModal');toast('技能创建成功')">创建技能</button></div>
+  </div>
+</div>
+
+<!-- Import -->
+<div class="overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">导入技能</div><button class="btn icon" onclick="closeModal('importModal')">×</button></div>
+    <div class="modal-body">
+      <div class="radio-grid">
+        <div class="radio-card active"><strong>本地文件夹</strong><span>选择已有 Skill 目录</span></div>
+        <div class="radio-card"><strong>ZIP 压缩包</strong><span>导入 .zip 技能包</span></div>
+        <div class="radio-card"><strong>Git 仓库</strong><span>从 Git URL 克隆</span></div>
+        <div class="radio-card"><strong>网络地址</strong><span>输入可下载的 Skill 地址</span></div>
+      </div>
+      <div class="form-row" style="margin-top:15px"><label class="form-label">来源地址</label><input class="input" placeholder="例如 https://github.com/example/skills/pdf"></div>
+      <div class="form-help">导入后 Walle 会自动读取 SKILL.md、识别版本，并检查与现有工具的冲突。</div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('importModal')">取消</button><button class="btn primary" onclick="closeModal('importModal');toast('开始导入技能…')">开始导入</button></div>
+  </div>
+</div>
+
+<!-- Edit -->
+<div class="overlay" id="editModal">
+  <div class="modal wide">
+    <div class="modal-head"><div class="modal-title">编辑技能 · find-skills</div><button class="btn icon" onclick="closeModal('editModal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label class="form-label">名称</label><input class="input" value="find-skills"></div>
+      <div class="form-row"><label class="form-label">描述</label><textarea class="textarea">Helps users discover and install agent skills when they ask questions like “how do I do X”, “find a skill for X”, “is there a skill that can...”, or express interest in extending capabilities.</textarea></div>
+      <div class="form-row"><label class="form-label">本地路径</label><input class="input" value="C:\Users\Administrator\.agents\skills\find-skills"></div>
+      <div class="form-row"><label class="form-label">同步策略</label><select class="input"><option>共享库作为唯一源</option><option>以当前目录为主</option><option>手动同步</option></select></div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('editModal')">取消</button><button class="btn primary" onclick="closeModal('editModal');toast('技能信息已保存')">保存修改</button></div>
+  </div>
+</div>
+
+<!-- Sync -->
+<div class="overlay" id="syncModal">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">同步到 AI 工具</div><button class="btn icon" onclick="closeModal('syncModal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label class="form-label">选择目标工具</label>
+        <div class="radio-grid">
+          <div class="radio-card active"><strong>ZCode</strong><span>当前 v1.8.3 · 已连接</span></div>
+          <div class="radio-card active"><strong>Cursor</strong><span>当前 v2.4.1 · 已连接</span></div>
+          <div class="radio-card"><strong>Codex CLI</strong><span>未安装</span></div>
+          <div class="radio-card"><strong>OpenCode</strong><span>已安装 · 未接入</span></div>
+        </div>
+      </div>
+      <div class="info-card" style="background:#fafbfc"><div class="info-label">同步结果预览</div><div class="info-value">将创建 2 个符号链接，不复制 Skill 内容；后续共享库更新可自动生效。</div></div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('syncModal')">取消</button><button class="btn primary" onclick="closeModal('syncModal');toast('同步完成：2 个工具已更新')">开始同步</button></div>
+  </div>
+</div>
+
+<!-- Delete -->
+<div class="overlay" id="deleteModal">
+  <div class="modal" style="width:430px">
+    <div class="modal-head"><div class="modal-title">删除技能</div><button class="btn icon" onclick="closeModal('deleteModal')">×</button></div>
+    <div class="modal-body"><div style="font-size:13px;line-height:1.7">确定删除 <strong>find-skills</strong> 吗？<br><span style="color:var(--muted)">删除后将解除 2 个工具的接入，但不会删除共享库原始文件。</span></div></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('deleteModal')">取消</button><button class="btn" style="color:#fff;background:var(--red);border-color:var(--red)" onclick="closeModal('deleteModal');toast('技能已删除')">确认删除</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const skills=[
+ {name:'find-skills',desc:'Helps users discover and install agent skills when they ask questions like “how do I do X”, “find a skill for X”, “is there a skill that can...”',count:2,source:'Skills 共享库',status:'installed',size:5.5,tools:['ZCode','Cursor'],version:'1.2.0'},
+ {name:'grill-me',desc:'A relentless interview to sharpen a plan or design.',count:2,source:'Skills 共享库',status:'installed',size:3.2,tools:['ZCode','Cursor'],version:'1.0.1'},
+ {name:'pebrel-runtime',desc:'Control the live Pebrel terminal workspace from Codex or Claude Code.',count:1,source:'Codex CLI',status:'conflict',size:8.1,tools:['Codex CLI'],version:'0.9.0'},
+ {name:'automate',desc:'Use this skill to create Cursor Automations.',count:1,source:'Cursor',status:'installed',size:2.4,tools:['Cursor'],version:'2.0.0'},
+ {name:'autopilot',desc:'Keep a PR merge-ready by triaging comments, resolving clear issues and checking CI.',count:1,source:'Cursor',status:'update',size:6.8,tools:['Cursor'],version:'1.4.0'},
+ {name:'canvas',desc:'A Cursor Canvas is a live React app that the user can open beside their editor.',count:1,source:'Cursor',status:'installed',size:12.2,tools:['Cursor'],version:'1.1.0'},
+ {name:'create-hook',desc:'Create Cursor hooks. Use when you want to create a hook, write a hook configuration, or manage hook scripts.',count:1,source:'Cursor',status:'installed',size:4.6,tools:['Cursor'],version:'1.0.0'},
+ {name:'create-rule',desc:'Create Cursor rules for persistent AI guidance. Use when you need a project-level rule.',count:1,source:'Cursor',status:'installed',size:4.1,tools:['Cursor'],version:'1.2.0'},
+ {name:'pdf-proofread',desc:'Inspect PDF text, detect suspicious characters and produce a review report.',count:3,source:'Skills 共享库',status:'update',size:15.7,tools:['ZCode','Cursor','OpenCode'],version:'0.8.0'},
+ {name:'rag-test',desc:'Test embedding, retrieval threshold, reranking and RAG answer quality.',count:2,source:'Skills 共享库',status:'installed',size:7.3,tools:['ZCode','Cursor'],version:'0.6.2'}
+];
+
+let selected='find-skills', status='all', activeTab='overview';
+
+function renderList(){
+ const q=document.getElementById('search').value.toLowerCase().trim();
+ const source=document.getElementById('sourceFilter').value;
+ let arr=skills.filter(s=>(status==='all'||s.status===status)&&(source==='all'||s.source===source)&&(!q||s.name.toLowerCase().includes(q)||s.desc.toLowerCase().includes(q)));
+ const sort=document.getElementById('sortFilter').value;
+ if(sort==='name')arr.sort((a,b)=>a.name.localeCompare(b.name));
+ if(sort==='size')arr.sort((a,b)=>b.size-a.size);
+ if(sort==='count')arr.sort((a,b)=>b.count-a.count);
+ document.getElementById('resultCount').textContent=(q||status!=='all'||source!=='all'?arr.length:'39')+' 个技能';
+ const box=document.getElementById('skillList');
+ if(!arr.length){box.innerHTML='<div class="empty"><strong>没有找到匹配的技能</strong>尝试调整搜索或筛选条件</div>';return}
+ box.innerHTML=arr.map(s=>`
+ <div class="skill-card ${s.name===selected?'selected':''}" onclick="selectSkill('${s.name}')">
+   <div class="skill-head"><div class="skill-name">${s.name}</div><div class="skill-count">${s.count}处</div></div>
+   <div class="skill-desc">${s.desc}</div>
+   <div class="meta">
+     <span class="tag ${s.status==='update'?'warn':''}">${s.status==='update'?'<span class="dot warn"></span>有更新':s.status==='conflict'?'<span class="dot red"></span>冲突':'<span class="dot"></span>已安装'}</span>
+     <span class="tag">${s.source}</span>
+     ${s.tools.slice(0,2).map(t=>`<span class="tag">${t}</span>`).join('')}
+     ${s.tools.length>2?`<span class="tag">+${s.tools.length-2}</span>`:''}
+   </div>
+ </div>`).join('');
+}
+function selectSkill(name){selected=name;activeTab='overview';renderList();updateDetail()}
+function updateDetail(){
+ const s=skills.find(x=>x.name===selected)||skills[0];
+ document.getElementById('detailName').textContent=s.name;
+ document.getElementById('detailDesc').textContent=s.desc;
+ document.getElementById('detailPath').textContent='C:\\Users\\Administrator\\.agents\\skills\\'+s.name;
+ document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===activeTab));
+ renderBody(s);
+}
+function switchTab(el){activeTab=el.dataset.tab;document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t===el));renderBody(skills.find(x=>x.name===selected))}
+function renderBody(s){
+ const b=document.getElementById('detailBody');
+ if(activeTab==='overview') b.innerHTML=overviewHTML(s);
+ if(activeTab==='markdown') b.innerHTML=markdownHTML(s);
+ if(activeTab==='files') b.innerHTML=filesHTML(s);
+ if(activeTab==='usage') b.innerHTML=usageHTML(s);
+}
+function overviewHTML(s){return `
+ <div class="section-title">基本信息</div>
+ <div class="grid">
+  <div class="info-card"><div class="info-label">状态</div><div class="status"><span class="dot"></span>${s.status==='update'?'有新版本':s.status==='conflict'?'存在冲突':'已安装'}</div></div>
+  <div class="info-card"><div class="info-label">版本</div><div class="info-value">${s.version} <span style="color:var(--muted2);font-weight:400">· 最新</span></div></div>
+  <div class="info-card"><div class="info-label">来源</div><div class="info-value">${s.source}</div></div>
+  <div class="info-card"><div class="info-label">大小</div><div class="info-value">${s.size} KB</div></div>
+ </div>
+ <div style="height:18px"></div>
+ <div class="section-title">安装位置</div>
+ <div class="source-card"><div class="source-row"><span class="source-head">本体目录</span><span>本地目录</span><span class="source-path">C:\\Users\\Administrator\\.agents\\skills\\${s.name}</span><span>${s.size} KB</span></div></div>
+ <div class="section-title">接入工具</div>
+ <div class="tool-boxes">
+  ${['ZCode','Cursor','Codex CLI','OpenCode'].map(t=>{let on=s.tools.includes(t);return `<div class="tool-box ${on?'connected':''}"><div class="tool-name">${t}</div><div class="tool-sub">${on?'已建立连接':'可连接'}</div><div class="tool-state ${on?'':'off'}">${on?'● 正常同步':'○ 未接入'}</div></div>`}).join('')}
+ </div>
+ <div style="height:18px"></div>
+ <div class="section-title">同步策略</div>
+ <div class="source-card">
+  <div class="source-row"><span>共享库</span><span>唯一源</span><span class="source-path">skills/${s.name}/</span><span><button class="btn" style="height:26px;font-size:10px" onclick="openModal('syncModal')">同步</button></span></div>
+ </div>
+ <div class="section-title">最近活动</div>
+ <div class="source-card">
+  <div class="source-row"><span>今天 14:22</span><span>扫描</span><span>检测到 SKILL.md 文件</span><span>完成</span></div>
+  <div class="source-row"><span>昨天 18:06</span><span>同步</span><span>更新到 Cursor、ZCode</span><span>完成</span></div>
+ </div>
+`;}
+function markdownHTML(s){return `
+ <div class="md-wrap">
+  <div class="md-toolbar"><div class="md-toolbar-left"><span class="file-pill">SKILL.md</span><span class="tag blue">Markdown</span></div><div><button class="btn" style="height:27px;font-size:10px" onclick="toast('进入 Markdown 编辑模式')">编辑</button><button class="btn" style="height:27px;font-size:10px;margin-left:5px" onclick="toast('已复制 Markdown 内容')">复制</button></div></div>
+  <article class="md-content">
+   <h1>${s.name}</h1>
+   <p><strong>description:</strong> ${s.desc}</p>
+   <h2>Find Skills</h2>
+   <p>This skill helps you discover and install skills from the open agent skills ecosystem.</p>
+   <h2>When to Use This Skill</h2>
+   <p>Use this skill when the user is looking for functionality that might exist as an installable skill.</p>
+   <ul><li>Asks “how do I do X” where X might be a common task with an existing skill</li><li>Says “find a skill for X” or “is there a skill for X”</li><li>Asks “can you do X” where X is a specialized capability</li><li>Expresses interest in extending agent capabilities</li></ul>
+   <h2>Workflow</h2>
+   <div class="code">1. Understand the requested capability<br>2. Search the installed / shared skill index<br>3. Compare matching skills<br>4. Recommend or install the selected skill</div>
+   <h2>Notes</h2>
+   <p>Keep the skill description concise and explain when it should be invoked. Prefer deterministic behavior when installing or synchronizing a skill.</p>
+  </article>
+ </div>
+`;}
+function filesHTML(s){return `
+ <div class="section-title">技能文件</div><div class="section-sub">本地文件结构 · ${s.size} KB · 最后扫描于今天 14:22</div>
+ <div class="tree">
+  <div class="tree-row"><span class="tree-icon">⌄</span><strong>${s.name}/</strong><span class="tree-size">${s.size} KB</span></div>
+  <div class="tree-row indent1"><span class="tree-icon">◇</span><span>SKILL.md</span><span class="tree-size">5.5 KB</span></div>
+  <div class="tree-row indent1"><span class="tree-icon">⌄</span><span>references/</span><span class="tree-size">3 files</span></div>
+  <div class="tree-row indent2"><span class="tree-icon">◇</span><span>examples.md</span><span class="tree-size">2.1 KB</span></div>
+  <div class="tree-row indent2"><span class="tree-icon">◇</span><span>install.md</span><span class="tree-size">1.4 KB</span></div>
+  <div class="tree-row indent2"><span class="tree-icon">◇</span><span>providers.md</span><span class="tree-size">1.0 KB</span></div>
+  <div class="tree-row indent1"><span class="tree-icon">⌄</span><span>scripts/</span><span class="tree-size">2 files</span></div>
+  <div class="tree-row indent2"><span class="tree-icon">◇</span><span>search.py</span><span class="tree-size">2.8 KB</span></div>
+  <div class="tree-row indent2"><span class="tree-icon">◇</span><span>install.py</span><span class="tree-size">3.2 KB</span></div>
+ </div>
+ <div style="height:18px"></div>
+ <div class="section-title">文件操作</div>
+ <div style="display:flex;gap:8px"><button class="btn" onclick="toast('已打开文件夹')">打开所在目录</button><button class="btn" onclick="toast('重新扫描完成')">重新扫描</button><button class="btn" onclick="toast('导出 ZIP 已准备')">导出 ZIP</button></div>
+`;}
+function usageHTML(s){return `
+ <div class="section-title">工具使用情况</div><div class="section-sub">这个 Skill 当前被哪些 AI 工具接入，以及同步状态。</div>
+ <div class="usage">
+ ${['ZCode','Cursor','Codex CLI','OpenCode'].map((t,i)=>{let on=s.tools.includes(t);let p=on?(i===0?82:i===1?64:34):0;return `<div class="usage-card"><div class="usage-top"><span class="usage-tool">${t}</span><span class="usage-version">${on?'已接入':'未接入'}</span></div><div class="usage-line"><i style="width:${p}%"></i></div><div class="usage-foot"><span>${on?'最近使用：今天 14:22':'可以连接'}</span><span>${on?(i+2)+' 次本周':'—'}</span></div></div>`}).join('')}
+ </div>
+ <div style="height:18px"></div>
+ <div class="section-title">同步状态</div>
+ <div class="source-card"><div class="source-row source-head"><span>工具</span><span>接入方式</span><span>目标路径</span><span>状态</span></div>
+ ${['ZCode','Cursor'].map(t=>`<div class="source-row"><span>${t}</span><span>符号链接</span><span class="source-path">~/.${t.toLowerCase()}/skills/${s.name}</span><span style="color:var(--green)">正常</span></div>`).join('')}
+ </div>
+ <button class="btn primary" onclick="openModal('syncModal')">同步 / 管理接入</button>
+`;}
+function setStatus(el){status=el.dataset.status;document.querySelectorAll('#statusChips .chip').forEach(x=>x.classList.toggle('active',x===el));renderList()}
+function openModal(id){document.getElementById(id).classList.add('show');closeMenu()}
+function closeModal(id){document.getElementById(id).classList.remove('show')}
+function toggleMenu(e){e.stopPropagation();const m=document.getElementById('moreMenu');m.classList.toggle('show');const r=document.getElementById('moreBtn').getBoundingClientRect();m.style.top=(r.bottom+6)+'px';m.style.left=(r.right-150)+'px'}
+function closeMenu(){document.getElementById('moreMenu').classList.remove('show')}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
+document.addEventListener('click',e=>{if(!e.target.closest('#moreMenu')&&!e.target.closest('#moreBtn'))closeMenu()});
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('show')}));
+renderList();updateDetail();
+</script>
+</body>
+</html>

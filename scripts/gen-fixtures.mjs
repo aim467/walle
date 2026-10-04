@@ -254,4 +254,38 @@ INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at)
   fs.rmSync(tmp + '-shm', { force: true });
 }
 
+// 技能共享库模拟（skills CLI 模式）：~/.agents/skills 是本体，符号链接进工具目录。
+// Windows 无特权环境建不了符号链接——失败时写标记文件，测试按标记跳过相应断言。
+{
+  const store = path.join(fixtures, 'agents-store');
+  write('agents-store/skills/linked-skill/SKILL.md', '---\nname: linked-skill\ndescription: fixture skill linked into tool dirs\n---\n\nshared skill store body\n');
+  // 未被任何工具链接的技能：验证共享库本体的独立可见性
+  write('agents-store/skills/solo-skill/SKILL.md', '---\nname: solo-skill\ndescription: fixture skill not linked anywhere\n---\n\nsolo skill body\n');
+  write('agents-store/.skill-lock.json', JSON.stringify({
+    version: 3,
+    skills: {
+      'linked-skill': { source: 'fixture/skills', sourceType: 'github', skillPath: 'skills/linked-skill/SKILL.md', installedAt: '2026-10-04T13:38:04.092Z' },
+    },
+  }, null, 2));
+  const link = path.join(fixtures, 'zcode', 'skills', 'linked-skill');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  try {
+    fs.symlinkSync(path.join(store, 'skills', 'linked-skill'), link, 'dir');
+    write('zcode/skills/.symlinks-ok', '');
+  } catch {
+    fs.writeFileSync(path.join(link, 'SKILL.md'), 'fallback: symlink unavailable\n');
+  }
+  // 环防护：两个互链目录，walkFiles 不得死循环
+  try {
+    const a = path.join(fixtures, 'zcode', 'skills', 'loop-a');
+    const b = path.join(fixtures, 'zcode', 'skills', 'loop-b');
+    fs.mkdirSync(a, { recursive: true });
+    fs.mkdirSync(b, { recursive: true });
+    fs.symlinkSync(b, path.join(a, 'to-b'), 'dir');
+    fs.symlinkSync(a, path.join(b, 'to-a'), 'dir');
+  } catch {
+    /* 无特权环境跳过 */
+  }
+}
+
 console.log(`fixtures 已生成: ${fixtures}`);

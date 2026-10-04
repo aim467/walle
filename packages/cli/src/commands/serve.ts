@@ -23,6 +23,26 @@ const API_DOC_TEXT_LIMIT = 64 * 1024;
 
 const isSidecar = (name: string): boolean => name.endsWith('-shm') || name.endsWith('-wal') || name.endsWith('.log');
 
+/** 从 SKILL.md frontmatter 提取 description（支持 >- / | 等块标量的多行折叠） */
+function extractDescription(text: string): string | null {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!fm) return null;
+  const lines = fm[1].split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^description:\s*(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    const inline = m[1].trim();
+    if (inline && !/^[>|][+-]?$/.test(inline)) return inline;
+    const folded: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!/^\s+\S/.test(lines[j])) break;
+      folded.push(lines[j].trim());
+    }
+    return folded.length ? folded.join(' ') : null;
+  }
+  return null;
+}
+
 /** UI 静态文件目录：WALLE_UI_DIR > Vue 构建产物 ui/dist > 旧版单文件 ui/ */
 function resolveUiDir(): string | null {
   if (process.env.WALLE_UI_DIR && fs.existsSync(process.env.WALLE_UI_DIR)) return process.env.WALLE_UI_DIR;
@@ -370,6 +390,42 @@ export async function cmdServe(rest: string[]): Promise<void> {
           })
           .sort((a, b) => a.name.localeCompare(b.name));
         json(res, { files });
+        return;
+      }
+      // 技能聚合视图：各工具 skill 资产 + agents 共享库本体，按 realpath 分组（P5.2）
+      if (url.pathname === '/api/skills') {
+        const srcRows = store.db.prepare('SELECT tool, root_path FROM source').all() as unknown[];
+        const rootByTool = new Map((srcRows as Record<string, unknown>[]).map((s) => [String(s.tool), String(s.root_path)]));
+        const skillAssets = store.listAssets({ kind: 'skill', limit: 2000 });
+        const groups = new Map<string, { key: string; name: string; description: string | null; storePath: string | null; entries: unknown[] }>();
+        for (const a of skillAssets) {
+          const adapter = adapters.find((x) => x.id === a.tool);
+          const root = rootByTool.get(a.tool);
+          if (!adapter || !root) continue;
+          const abs = adapter.resolve ? adapter.resolve(root, a.path) : path.resolve(root, a.path);
+          let real = abs;
+          let linked = false;
+          try {
+            real = fs.realpathSync(abs);
+            // 大小写不敏感比较（Windows realpath 会还原真实大小写，目录连接/符号链接均算链接）
+            linked = real.toLowerCase() !== path.resolve(abs).toLowerCase();
+          } catch {
+            /* 文件已消失：仍按原路径展示 */
+          }
+          const key = process.platform === 'win32' ? real.toLowerCase() : real;
+          // frontmatter description 从 CAS 副本提取（支持块标量）
+          let description: string | null = null;
+          if (a.contentHash) {
+            description = extractDescription(cas.get(a.contentHash)?.toString('utf8') ?? '');
+          }
+          const g = groups.get(key) ?? { key, name: a.name ?? '', description, storePath: null, entries: [] };
+          if (!g.description && description) g.description = description;
+          if (a.tool === 'agents' && !g.storePath) g.storePath = abs;
+          g.entries.push({ tool: a.tool, assetId: a.id, path: a.path, abs, linked, size: a.size ?? 0, mtime: a.mtime ?? '' });
+          groups.set(key, g);
+        }
+        const skills = [...groups.values()].sort((x, y) => (x.storePath ? 0 : 1) - (y.storePath ? 0 : 1) || x.name.localeCompare(y.name));
+        json(res, { skills });
         return;
       }
       res.writeHead(404);

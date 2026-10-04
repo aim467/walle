@@ -38,6 +38,10 @@ export const TOOL_ROOT_DEFS: ToolRootDef[] = [
     default: () => path.join(os.homedir(), '.local', 'share', 'opencode'),
   },
   { key: 'workbuddy', tool: 'workbuddy', label: '配置根', default: () => path.join(os.homedir(), '.workbuddy-ai') },
+  {
+    key: 'agents', tool: 'agents', label: '技能共享库（~/.agents）', env: 'WALLE_AGENTS',
+    default: () => path.join(os.homedir(), '.agents'),
+  },
 ];
 
 /** 解析某工具某根的实际路径（覆盖 > 环境变量 > 默认） */

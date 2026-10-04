@@ -93,5 +93,13 @@ export const zcodeAdapter: Adapter = {
 
     // cli/artifacts/**（大体积工具结果转储）不再入库：正文本就在 db.sqlite 的 tool part 中，
     // 资产库与索引被数百个转储文件刷屏（降噪）；需要原文时由会话详情 Files 页签按需读取（/api/artifacts）。
+
+    // 5. skills：~/.zcode/skills/<技能>/SKILL.md（skills CLI 把 ~/.agents/skills 的技能符号链接到此）
+    for (const f of walkFiles(root, 'skills', { ignoreDirNames: IGNORE_DIRS })) {
+      if (!f.rel.endsWith('/SKILL.md') && f.rel !== 'SKILL.md') continue;
+      const skillName = path.basename(path.dirname(f.rel));
+      const a = statAsset(root, toRel(root, f.abs), 'skill', 'markdown', { name: skillName });
+      if (a) yield a;
+    }
   },
 };
