@@ -20,6 +20,21 @@ const kindLabel: Record<string, string> = {
 };
 const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy' };
 const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo };
+
+/** 资产类型图标（24×24 描边 path，lucide 风格；未知类型回退到「盒子」） */
+const ICON_PATHS: Record<string, string[]> = {
+  all: ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M3 14h7v7H3z', 'M14 14h7v7h-7z'],
+  skill: ['M13 2 3 14h9l-1 8 10-12h-9l1-8z'],
+  config: ['M4 21v-7', 'M4 10V3', 'M12 21v-9', 'M12 8V3', 'M20 21v-5', 'M20 12V3', 'M1 14h6', 'M9 8h6', 'M17 16h6'],
+  memory: ['M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'],
+  rule: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01'],
+  secret: ['M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4'],
+  mcp: ['M12 22v-5', 'M9 8V2', 'M15 8V2', 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z'],
+  agent: ['M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2', 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z'],
+  plugin: ['M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z'],
+  other: ['M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z', 'M3.3 7l8.7 5 8.7-5', 'M12 22V12'],
+};
+const kindIcon = (k: string): string[] => ICON_PATHS[k] ?? ICON_PATHS.other;
 /** 会话类资产由「会话」页负责，此处排除避免两个页面职责冲突 */
 const EXCLUDED_KINDS = new Set(['session', 'prompt']);
 /** ZCode 模型 I/O 遥测也属会话数据（kind=other），一并移交会话页 */
@@ -185,9 +200,15 @@ onMounted(async () => {
     <!-- 第二层：资产类型（原左侧纵向分类栏移到这里） -->
     <div class="typerow">
       <button class="tchip" :class="{ on: kind === '' }" @click="kind = ''">
+        <svg class="tchip-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path v-for="(d, i) in kindIcon('all')" :key="i" :d="d" />
+        </svg>
         全部<span class="tchip-n">{{ totalInScope }}</span>
       </button>
       <button v-for="t in kindTabs" :key="t.key" class="tchip" :class="{ on: kind === t.key }" @click="kind = t.key">
+        <svg class="tchip-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path v-for="(d, i) in kindIcon(t.key)" :key="i" :d="d" />
+        </svg>
         {{ t.label }}<span class="tchip-n">{{ t.n }}</span>
       </button>
     </div>
@@ -341,6 +362,7 @@ onMounted(async () => {
 .typerow { flex: 0 0 auto; height: 42px; display: flex; gap: 4px; align-items: center; padding: 0 16px; background: var(--card-solid); border-bottom: 1px solid var(--border); overflow-x: auto; }
 .typerow::-webkit-scrollbar { height: 0; }
 .tchip { display: inline-flex; gap: 8px; align-items: center; height: 28px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; color: var(--dim); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.tchip-i { width: 14px; height: 14px; flex-shrink: 0; opacity: .85; }
 .tchip:hover { background: rgba(0, 0, 0, .05); color: var(--text); }
 .tchip.on { background: rgba(0, 113, 227, .1); color: var(--accent); font-weight: 600; }
 .tchip-n { font-size: 11px; opacity: .75; }
