@@ -23,5 +23,9 @@
     "typescript": "^5.7.0",
     "vite": "^5.4.21",
     "vue": "^3.5.43"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.16",
+    "marked": "^18.0.14"
   }
 }

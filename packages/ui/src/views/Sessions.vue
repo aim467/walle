@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue';
 import { NInput, NEmpty, NTag, NButton } from 'naive-ui';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+
+marked.setOptions({ gfm: true, breaks: true });
 import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
@@ -80,6 +84,12 @@ function clipText(m: Msg) {
   const nl = cut.lastIndexOf('\n');
   if (nl > FOLD_CHARS * 0.7) cut = cut.slice(0, nl);
   return cut;
+}
+
+/** assistant 消息 Markdown 渲染（DOMPurify 消毒；折叠消息以截断文本为源渲染摘要） */
+function mdHtml(m: Msg): string {
+  const src = isCollapsed(m) ? clipText(m) : m.text;
+  return DOMPurify.sanitize(marked.parse(src) as string);
 }
 
 const toolMsgs = computed(() => msgs.value.filter((m) => m.role === 'tool'));
@@ -281,7 +291,13 @@ onMounted(async () => {
                     <span v-if="m.ts" class="dim small m-time">{{ fmtFull(m.ts) }}</span>
                     <span class="m-copy" title="复制内容" @click="copyMsg(m.text)">⧉</span>
                   </div>
-                  <div class="msg" :class="[m.role || 'assistant', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
+                  <div
+                    v-if="m.role === 'assistant'"
+                    class="msg assistant md"
+                    :class="{ clamped: isCollapsed(m) }"
+                    v-html="mdHtml(m)"
+                  ></div>
+                  <div v-else class="msg" :class="[m.role || 'assistant', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
                   <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
                     {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
                   </button>
@@ -472,6 +488,26 @@ onMounted(async () => {
 .msg-row.anchor-flash .msg { outline: 2px solid var(--accent); border-radius: 12px; transition: outline-color 1s; }
 .msg.user { background: rgba(0, 113, 227, .09); border: 1px solid rgba(0, 113, 227, .15); }
 .msg.assistant { background: var(--card-solid); border: 1px solid var(--border); box-shadow: var(--shadow); }
+/* Markdown 渲染（assistant 消息）：块级排版覆盖 pre-wrap */
+.msg.md { white-space: normal; line-height: 1.6; }
+.msg.md > :first-child { margin-top: 0; }
+.msg.md > :last-child { margin-bottom: 0; }
+.msg.md p { margin: 0 0 8px; }
+.msg.md h1, .msg.md h2, .msg.md h3, .msg.md h4 { margin: 14px 0 8px; line-height: 1.35; }
+.msg.md h1 { font-size: 17px; } .msg.md h2 { font-size: 15.5px; } .msg.md h3 { font-size: 14.5px; } .msg.md h4 { font-size: 13.5px; }
+.msg.md ul, .msg.md ol { margin: 6px 0; padding-left: 22px; }
+.msg.md li { margin: 2px 0; }
+.msg.md li > p { margin: 0; }
+.msg.md code { background: rgba(0, 0, 0, .06); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; font-family: ui-monospace, Menlo, Consolas, 'Courier New', monospace; }
+.msg.md pre { background: #f6f6f7; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+.msg.md pre code { background: none; padding: 0; font-size: 12px; line-height: 1.5; }
+.msg.md blockquote { border-left: 3px solid var(--border); margin: 8px 0; padding: 2px 12px; color: var(--dim); }
+.msg.md table { border-collapse: collapse; margin: 8px 0; display: block; overflow-x: auto; max-width: 100%; }
+.msg.md th, .msg.md td { border: 1px solid var(--border); padding: 4px 10px; font-size: 12.5px; text-align: left; }
+.msg.md th { background: rgba(0, 0, 0, .03); }
+.msg.md a { color: var(--accent); text-decoration: none; }
+.msg.md a:hover { text-decoration: underline; }
+.msg.md hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 12.5px; }
 .msg.tool { background: #fffbe8; border: 1px solid #f0e2ac; font-size: 12.5px; }
 /* 概览 */
