@@ -5,6 +5,7 @@ import Overview from './views/Overview.vue';
 import Assets from './views/Assets.vue';
 import Sessions from './views/Sessions.vue';
 import Settings from './views/Settings.vue';
+import walleMark from './assets/walle-mark.svg';
 
 const route = ref(location.hash.slice(1) || '/');
 window.addEventListener('hashchange', () => { route.value = location.hash.slice(1) || '/'; });
@@ -43,7 +44,7 @@ onMounted(async () => {
       <div class="shell">
         <aside class="sidebar glassbar">
           <div class="brand">
-            <div class="logo-mark">W</div>
+            <img class="logo-mark" :src="walleMark" alt="walle">
             <div>
               <div class="brand-name">walle</div>
               <div class="brand-sub">瓦力 · {{ sources }} 个数据源</div>
@@ -88,10 +89,8 @@ onMounted(async () => {
 .brand { display: flex; gap: 10px; align-items: center; padding: 4px 8px 16px; }
 .logo-mark {
   width: 34px; height: 34px; border-radius: 9px;
-  background: linear-gradient(135deg, #0a84ff, #5e5ce6);
-  color: #fff; font-weight: 700; font-size: 17px;
-  display: flex; align-items: center; justify-content: center;
   box-shadow: 0 2px 8px rgba(10, 132, 255, .35);
+  display: block;
 }
 .brand-name { font-weight: 700; font-size: 15px; letter-spacing: .2px; }
 .brand-sub { font-size: 11px; color: var(--dim); }
