@@ -124,6 +124,29 @@ write('cursor/skills-cursor/automate/SKILL.md', '---\nname: automate\ndescriptio
   db.exec('CREATE TABLE ItemTable (key TEXT, value TEXT); CREATE TABLE cursorDiskKV (key TEXT, value TEXT);');
   db.close();
 }
+// conversation-search.db：conversations 表是 Cursor 会话数的权威来源（正文加密不可读，noDocs 合并到转录资产）
+// cccc…003 与 agent-transcripts 转录文件对应（验证 DB 标题优先）；其余两行无转录（验证回退挂到 db 资产）
+{
+  const db = openDb('cursor-appdata/User/globalStorage/conversation-search.db');
+  db.exec(`CREATE TABLE conversations (fts_rowid INTEGER PRIMARY KEY, source TEXT, scope TEXT, id TEXT, title TEXT, updated_at INTEGER, is_archived INTEGER, root_fingerprint TEXT, cache_fingerprint TEXT);
+INSERT INTO conversations (source, scope, id, title, updated_at, is_archived, root_fingerprint) VALUES
+  ('local', '', 'cccc3333-0000-4000-8000-000000000003', 'fixture 数据库标题', 1785940809523, 0, 'fp1'),
+  ('local', '', 'aaaa1111-0000-4000-8000-000000000001', 'fixture 会话：语义检索阈值', 1785941430383, 0, 'fp2'),
+  ('local', '', 'aaaa1111-0000-4000-8000-000000000002', '', 1785941430384, 0, 'fp3');`);
+  db.close();
+}
+// agent-transcripts：明文会话转录（projects/<项目slug>/agent-transcripts/<composerId>/<composerId>.jsonl）
+write(
+  'cursor/projects/d-fixture-proj/agent-transcripts/cccc3333-0000-4000-8000-000000000003/cccc3333-0000-4000-8000-000000000003.jsonl',
+  [
+    { role: 'user', message: { content: [{ type: 'text', text: '<timestamp>Wednesday, Aug 5, 2026, 10:36 PM (UTC+8)</timestamp>\n<user_query>\n帮我检查语义检索的阈值配置\n</user_query>' }] } },
+    { role: 'assistant', message: { content: [{ type: 'text', text: '先读取配置文件。' }, { type: 'tool_use', name: 'Read', input: { path: 'D:\\fixture\\proj\\config.json' } }] } },
+    { role: 'assistant', message: { content: [{ type: 'text', text: '语义检索阈值为 0.7。' }] } },
+    { type: 'turn_ended', status: 'success' },
+  ]
+    .map((o) => JSON.stringify(o))
+    .join('\n') + '\n',
+);
 write('cursor-appdata/User/settings.json', JSON.stringify({ 'editor.fontSize': 14 }));
 
 // ---------- workbuddy（单根 ~/.workbuddy-ai 的脱敏样本） ----------

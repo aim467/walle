@@ -227,6 +227,35 @@ test('会话清单：标题与来源富化', () => {
   const oc = rows.find((s) => s.tool === 'opencode');
   assert.ok(oc && oc.title === '语义检索工具可用性测试', 'opencode 会话标题应来自 db');
   assert.ok(rows.some((s) => s.tool === 'codex' && s.title), 'codex 会话应有标题（fixture 首条用户消息）');
+  // Cursor：conversations 表为权威会话索引（noDocs），转录文件提供正文
+  const cursorRows = rows.filter((s) => s.tool === 'cursor');
+  assert.equal(cursorRows.length, 3, `cursor 应有 3 条会话元数据，实际 ${cursorRows.length}`);
+  // 有转录的会话：DB 标题合并到转录资产（DB 优先于转录首条提问）
+  const merged = cursorRows.find((s) => s.subId === 'cccc3333-0000-4000-8000-000000000003');
+  assert.ok(merged, 'cursor 转录会话应入库');
+  assert.equal(merged.title, 'fixture 数据库标题', 'DB 标题应合并到转录资产且优先');
+  assert.ok(merged.assetPath.includes('agent-transcripts'), '合并目标应为转录文件资产');
+  assert.ok(merged.startedAt, '合并后应有 DB 时间戳');
+  // 无转录的会话：回退挂到 conversation-search.db 资产本身，仍计入会话数
+  const dbOnly = cursorRows.find((s) => s.subId === 'aaaa1111-0000-4000-8000-000000000001');
+  assert.ok(dbOnly, '无转录会话应保留在清单');
+  assert.equal(dbOnly.title, 'fixture 会话：语义检索阈值', '无转录会话标题来自 conversations 表');
+  assert.ok(dbOnly.assetPath.includes('conversation-search.db'), '无转录会话应挂到 db 资产');
+  assert.equal(cursorRows.find((s) => s.subId === 'aaaa1111-0000-4000-8000-000000000002')?.title ?? null, null, '空标题应存为 null 而非空串');
+});
+
+test('cursor 转录正文：剥离注入包装、tool_use 入文档', () => {
+  const cursor = adapters.find((a) => a.id === 'cursor');
+  const asset = store.listAssets({ tool: 'cursor', kind: 'session', limit: 20 }).find((a) => a.path.includes('agent-transcripts'));
+  assert.ok(asset, 'cursor 转录应作为 session 资产入库');
+  const result = cursor.parse(cas.pathFor(asset.contentHash), { kind: 'session', path: asset.path, tool: 'cursor' }, 'read');
+  assert.ok(result, 'cursor 转录应可解析');
+  const user = result.docs.find((d) => d.role === 'user');
+  assert.ok(user && user.text.includes('语义检索的阈值配置'), '应提取到用户真实提问');
+  assert.ok(!user.text.includes('<timestamp>') && !user.text.includes('<user_query>'), '注入包装应被剥离');
+  assert.ok(result.docs.some((d) => d.role === 'tool' && d.text.includes('[调用 Read]')), 'tool_use 应转为 tool 文档');
+  assert.ok(result.docs.some((d) => d.role === 'assistant' && d.text.includes('0.7')), '应含助手回复');
+  assert.equal(result.docs.filter((d) => d.text.includes('turn_ended')).length, 0, '控制行不应入文档');
 });
 
 test('workbuddy 会话：DB 标题合并 / ai-title 兜底 / 剥离注入块', () => {

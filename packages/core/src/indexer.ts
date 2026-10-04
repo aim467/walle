@@ -40,7 +40,7 @@ export function buildIndex(
   const now = new Date().toISOString();
   // noDocs 标题来源延后到所有资产 delete/insert 完成后统一合并，
   // 避免会话文件资产自身的 deleteAssetDocs 误删先期合并结果
-  const deferredMerges: { tool: string; sm: SessionMetaRow }[] = [];
+  const deferredMerges: { tool: string; sm: SessionMetaRow; assetId: number }[] = [];
 
   for (const asset of store.pendingIndex()) {
     const contentPath = cas.pathFor(asset.contentHash);
@@ -67,7 +67,7 @@ export function buildIndex(
         docs = result.docs;
         for (const sm of result.sessions) {
           if (sm.noDocs) {
-            deferredMerges.push({ tool: asset.tool, sm });
+            deferredMerges.push({ tool: asset.tool, sm, assetId: asset.id });
             continue;
           }
           store.addSessionMeta(asset.id, sm);
@@ -100,10 +100,11 @@ export function buildIndex(
       stats.errors.push(`${asset.path}: ${(err as Error).message}`);
     }
   }
-  // 第二段：合并标题来源（session_index / state_5 → 会话文件资产）
-  for (const { tool, sm } of deferredMerges) {
-    const target = store.findAssetIdByPathFragment(tool, sm.subId);
-    if (target == null) continue;
+  // 第二段：合并标题来源（session_index / state_5 / conversation-search → 会话文件资产）。
+  // 找不到 path 含 subId 的会话文件资产时（如 Cursor 库中有记录但转录文件已清理），挂回元数据来源资产本身，
+  // 保证会话仍出现在清单中（详情无正文是真实状态）。
+  for (const { tool, sm, assetId } of deferredMerges) {
+    const target = store.findAssetIdByPathFragment(tool, sm.subId) ?? assetId;
     store.addSessionMeta(target, sm);
     stats.sessions++;
     if (sm.title) {

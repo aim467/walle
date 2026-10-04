@@ -10,6 +10,8 @@ import type { ParsedDoc, ParsedResult, SessionMetaRow, ParseMode } from '@walle/
  * - parseCodexSessionIndex / parseCodexState: Codex 会话标题来源（noDocs 合并到会话文件资产）
  * - parseWorkbuddyRollout: WorkBuddy 会话 JSONL（session-meta / ai-title / message）
  * - parseWorkbuddyDb: WorkBuddy workbuddy.db sessions 表（权威标题/cwd/model，noDocs 合并）
+ * - parseCursorConversationSearch: Cursor conversation-search.db conversations 表（权威会话索引，noDocs 合并）
+ * - parseCursorTranscript: Cursor agent-transcripts JSONL（明文消息正文，正文加密的绕行方案）
  */
 
 /** epoch 毫秒/秒 或 ISO 字符串 → ISO；无法识别返回 null */
@@ -395,4 +397,92 @@ export function parseWorkbuddyDb(contentPath: string): ParsedResult | null {
   } finally {
     db.close();
   }
+}
+
+/**
+ * Cursor conversation-search.db conversations 表 → 权威会话索引（id / title / updated_at）。
+ * 消息正文受 blobEncryptionKey 加密（FTS body 为空），此处仅作标题来源（noDocs）：
+ * 由索引器合并到 agent-transcripts 会话文件资产上，找不到对应文件资产的会话挂回本资产（仍计入会话数）。
+ */
+export function parseCursorConversationSearch(contentPath: string): ParsedResult | null {
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(contentPath, { readOnly: true });
+  } catch {
+    return null;
+  }
+  const sessions: SessionMetaRow[] = [];
+  try {
+    if (!tableExists(db, 'conversations')) return null;
+    const rows = db.prepare('SELECT id, title, updated_at FROM conversations ORDER BY updated_at').all() as unknown[];
+    for (const raw of rows) {
+      const r = raw as Record<string, unknown>;
+      if (r.id == null) continue;
+      const title = r.title ? String(r.title).trim() : '';
+      sessions.push({
+        subId: String(r.id),
+        title: title || null,
+        startedAt: toIso(r.updated_at),
+        messageCount: null,
+        noDocs: true,
+      });
+    }
+    return { docs: [], sessions };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Cursor agent-transcripts JSONL（projects/<项目slug>/agent-transcripts/<composerId>/<composerId>.jsonl）
+ * → 消息文档 + 会话元数据。行形如 {role, message:{content:[{type:'text'|'tool_use', text, name, input}]}}，
+ * 另有无 role 的 turn_ended 控制行（跳过）。行内无时间戳；user 首轮带 <timestamp>/<user_query> 注入包装，剥离。
+ * 标题取首条用户提问兜底，conversation-search.db 合并时以库内标题为准。
+ * composerId 需由调用方从资产路径取（正文行内无会话 id；contentPath 是 CAS 哈希文件名，不可作 subId）。
+ */
+export function parseCursorTranscript(contentPath: string, composerId: string): ParsedResult | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(contentPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const docs: ParsedDoc[] = [];
+  const sessions: SessionMetaRow[] = [];
+  const subId = composerId;
+  let firstUser: string | null = null;
+  let seq = 0;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let o: Record<string, unknown>;
+    try {
+      o = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const role = typeof o.role === 'string' ? o.role : null;
+    if (!role) continue; // turn_ended 等控制行
+    const msg = o.message as Record<string, unknown> | undefined;
+    const content = msg && Array.isArray(msg.content) ? (msg.content as Record<string, unknown>[]) : [];
+    for (const item of content) {
+      if (item.type === 'tool_use') {
+        const name = typeof item.name === 'string' ? item.name : 'tool';
+        const input = item.input == null ? '' : JSON.stringify(item.input);
+        docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts: null, text: `[调用 ${name}]${input ? ' ' + input : ''}` });
+        continue;
+      }
+      if (item.type !== 'text' || typeof item.text !== 'string') continue;
+      const body = item.text
+        .replace(/<timestamp\b[\s\S]*?<\/timestamp>/gi, '')
+        .replace(/<\/?user_query>/gi, '')
+        .trim();
+      if (!body) continue;
+      if (!firstUser && role === 'user') firstUser = body.replace(/\s+/g, ' ').slice(0, 60);
+      docs.push({ subId, docType: 'session_message', seq: seq++, role, ts: null, text: body });
+    }
+  }
+  if (subId) {
+    sessions.push({ subId, title: firstUser, startedAt: null, projectPath: null, messageCount: docs.length });
+  }
+  return { docs, sessions };
 }

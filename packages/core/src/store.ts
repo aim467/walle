@@ -365,13 +365,15 @@ export class WalleStore {
   }
 
   addSessionMeta(assetId: number, row: SessionMetaRow): void {
+    // ON CONFLICT 用 COALESCE：后合并方（如 DB 标题来源）字段为 null 时保留先写入的值，不降级
     this.db
       .prepare(
         `INSERT INTO session_meta (asset_id, sub_id, started_at, title, model, message_count, project_path)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (asset_id, sub_id) DO UPDATE SET
-           started_at = excluded.started_at, title = excluded.title, model = excluded.model,
-           message_count = excluded.message_count, project_path = excluded.project_path`,
+           started_at = COALESCE(excluded.started_at, started_at), title = COALESCE(excluded.title, title),
+           model = COALESCE(excluded.model, model), message_count = COALESCE(excluded.message_count, message_count),
+           project_path = COALESCE(excluded.project_path, project_path)`,
       )
       .run(assetId, row.subId, row.startedAt ?? null, row.title ?? null, row.model ?? null, row.messageCount ?? null, row.projectPath ?? null);
   }
