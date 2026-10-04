@@ -278,8 +278,8 @@ function stripInjectedBlocks(text: string): string {
 /**
  * WorkBuddy 会话 JSONL（projects/<项目slug>/<会话id>.jsonl）→ 消息文档 + 会话元数据。
  * 行类型：session-meta（sessionId/meta）、ai-title（AI 生成的会话标题）、message（user/assistant，
- * content[].text）、reasoning / function_call / function_call_result（工具与思考，P2 不入索引）、
- * file-history-snapshot / resend-fork-notice（侧车事件）。
+ * content[].text）、function_call / function_call_result（工具调用与结果，role=tool 入索引）、
+ * reasoning（思考，不入索引）、file-history-snapshot / resend-fork-notice（侧车事件）。
  * subId 取 session-meta/ai-title 的 sessionId，缺省用文件名（会话 uuid）。
  */
 export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): ParsedResult | null {
@@ -311,6 +311,25 @@ export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): Par
     if (typeof o.cwd === 'string' && !projectPath) projectPath = o.cwd;
     if (type === 'ai-title' && typeof o.aiTitle === 'string') {
       title = o.aiTitle;
+      continue;
+    }
+    if (type === 'function_call' || type === 'function_call_result') {
+      // 工具调用 / 结果 → role=tool 文档（会话详情 Tools 页签）
+      const name = typeof o.name === 'string' ? o.name : (typeof o.callId === 'string' ? String(o.callId) : 'tool');
+      let body: string;
+      if (type === 'function_call') {
+        const args = typeof o.arguments === 'string' ? o.arguments.trim() : '';
+        body = `[调用 ${name}]${args ? ' ' + args : ''}`;
+      } else {
+        const out = o.output as Record<string, unknown> | undefined;
+        const outText = out && typeof out.text === 'string' ? out.text : '';
+        const status = typeof o.status === 'string' && o.status !== 'completed' ? ` (${o.status})` : '';
+        body = `[结果 ${name}]${status}${outText ? '\n' + outText : ''}`;
+      }
+      if (!body.trim()) continue;
+      const ts = toIso(o.timestamp);
+      if (!startedAt && ts) startedAt = ts;
+      docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: body });
       continue;
     }
     if (type !== 'message') continue;
