@@ -5,6 +5,7 @@ import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
+import agentsLogo from '../assets/logos/agents.svg';
 
 interface RootDef {
   key: string; tool: string; label: string;
@@ -23,7 +24,7 @@ interface ScanResult {
 }
 
 const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, agents: agentsLogo };
 const toolOrder = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy'];
 
 const data = ref<SettingsData | null>(null);

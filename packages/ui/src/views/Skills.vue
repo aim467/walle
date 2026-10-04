@@ -388,24 +388,26 @@ onMounted(load);
 </template>
 
 <style scoped>
-.page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; }
+/* 页面锁定为视口高度：main 上下 padding 共 80px，内部各自滚动、互不牵连 */
+.page { height: calc(100vh - 80px); display: flex; flex-direction: column; overflow: hidden; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; flex-shrink: 0; }
 .head-actions { display: flex; gap: 8px; align-items: center; }
 h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 
-.workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: stretch; flex: 1; min-height: 0; }
 @media (max-width: 1000px) { .workspace { grid-template-columns: 320px minmax(0, 1fr); } }
-.panel { background: #fff; border: 1px solid var(--border); border-radius: 14px; min-height: 0; }
+.panel { background: #fff; border: 1px solid var(--border); border-radius: 14px; min-height: 0; overflow: hidden; }
 
 /* 左侧清单 */
-.list-panel { display: flex; flex-direction: column; overflow: hidden; }
-.list-tools { padding: 10px; border-bottom: 1px solid var(--border); }
+.list-panel { display: flex; flex-direction: column; }
+.list-tools { padding: 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .chip { height: 26px; padding: 0 10px; border: 1px solid var(--border); background: #fff; border-radius: 13px; color: var(--dim); font-size: 11.5px; cursor: pointer; }
 .chip:hover { background: var(--bg); }
 .chip.on { background: #eaf3ff; border-color: #9ec5ff; color: #1468db; font-weight: 600; }
 .advanced { display: flex; gap: 7px; margin-top: 8px; }
-.list-summary { display: flex; justify-content: space-between; padding: 7px 12px 5px; font-size: 11px; }
-.skill-list { overflow: auto; flex: 1; padding: 0 8px 8px; }
+.list-summary { display: flex; justify-content: space-between; padding: 7px 12px 5px; font-size: 11px; flex-shrink: 0; }
+.skill-list { overflow: auto; flex: 1; padding: 0 8px 8px; overscroll-behavior: contain; }
 .skill-card { padding: 11px 10px; border: 1px solid transparent; border-radius: 10px; margin-bottom: 3px; cursor: pointer; }
 .skill-card:hover { background: var(--bg); }
 .skill-card.selected { background: #f7fbff; border-color: #6daaff; }
@@ -422,8 +424,8 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .dot.green { background: #18a566; }
 
 /* 右侧详情 */
-.detail { display: flex; flex-direction: column; overflow: hidden; max-height: calc(100vh - 190px); }
-.detail-head { padding: 17px 17px 0; border-bottom: 1px solid var(--border); }
+.detail { display: flex; flex-direction: column; }
+.detail-head { padding: 17px 17px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .detail-title-row { display: flex; justify-content: space-between; gap: 15px; }
 .dt-main { min-width: 0; }
 .detail-title { font-size: 19px; font-weight: 750; }
@@ -435,7 +437,7 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .tab { height: 36px; border: 0; background: transparent; padding: 0 13px; color: var(--dim); border-bottom: 2px solid transparent; font-size: 13px; cursor: pointer; }
 .tab:hover { color: #333; }
 .tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
-.detail-body { min-height: 0; flex: 1; overflow: auto; padding: 16px 17px; }
+.detail-body { min-height: 0; flex: 1; overflow: auto; padding: 16px 17px; overscroll-behavior: contain; }
 
 /* 概览 */
 .section-title { font-size: 13px; font-weight: 700; margin: 16px 0 10px; }
