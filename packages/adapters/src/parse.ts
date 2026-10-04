@@ -37,6 +37,30 @@ function safeJsonParse(text: string | null | undefined): Record<string, unknown>
   }
 }
 
+/** 从工具调用 input 对象提取涉及的文件路径（path/file 类键的字符串值），供 Files 页签 */
+function extractInputPaths(input: unknown): string[] {
+  if (input == null || typeof input !== 'object') return [];
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof v !== 'string' || v.length === 0 || v.length > 500) continue;
+    if (!/^(file_?path|filepath|path|notebook_path)$/i.test(k)) continue;
+    if (!v.includes('/') && !v.includes('\\')) continue;
+    if (/^[a-z]+:\/\//i.test(v)) continue;
+    out.push(v);
+  }
+  return out;
+}
+
+/** 从 apply_patch 风格的补丁文本提取变更文件（*** Update/Add/Delete File: <path>） */
+function extractPatchFilePaths(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/^\*\*\* (?:Update|Add|Delete|Move to) File: (.+)$/gm)) {
+    const p = m[1].trim();
+    if (p) out.push(p);
+  }
+  return out;
+}
+
 function cols(db: DatabaseSync, table: string): Set<string> {
   try {
     return new Set((db.prepare(`PRAGMA table_info("${table}")`).all() as unknown[]).map((r) => String((r as Record<string, unknown>).name)));
@@ -115,15 +139,43 @@ export function parseFamilyDb(contentPath: string, mode: ParseMode): ParsedResul
       for (const raw of partRows) {
         const r = raw as Record<string, unknown>;
         const d = safeJsonParse(r.data == null ? null : String(r.data));
-        const text = d && typeof d.text === 'string' ? d.text : '';
+        if (!d) continue;
+        const subId = String(r.session_id);
+        const msgTs = roleByMsg.get(String(r.message_id))?.ts ?? null;
+        if (d.type === 'tool') {
+          // 工具调用（ZCode/opencode 同构）：state.{status,input,output,time} → Tools 页签 + 涉及文件
+          const name = typeof d.tool === 'string' ? d.tool : 'tool';
+          const state = (d.state ?? {}) as Record<string, unknown>;
+          const status = typeof state.status === 'string' && state.status !== 'completed' ? ` (${state.status})` : '';
+          const ts = toIso((state.time as Record<string, unknown> | undefined)?.start) ?? msgTs;
+          const input = state.input == null ? '' : JSON.stringify(state.input);
+          if (input || status) {
+            docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[调用 ${name}]${status}${input ? ' ' + input : ''}` });
+          }
+          const output = typeof state.output === 'string' ? state.output : '';
+          if (output.trim()) {
+            docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[结果 ${name}]${status}${output ? '\n' + output : ''}` });
+          }
+          for (const p of extractInputPaths(state.input)) {
+            docs.push({ subId, docType: 'session_file', seq: seq++, role: 'tool', ts, text: p });
+          }
+          continue;
+        }
+        if (d.type === 'patch' && Array.isArray(d.files)) {
+          // opencode patch part：直接给出本段变更的文件清单
+          for (const p of d.files) {
+            if (typeof p === 'string' && p) docs.push({ subId, docType: 'session_file', seq: seq++, role: 'tool', ts: msgTs, text: p });
+          }
+          continue;
+        }
+        const text = typeof d.text === 'string' ? d.text : '';
         if (!text.trim()) continue;
-        const msg = roleByMsg.get(String(r.message_id));
         docs.push({
-          subId: String(r.session_id),
+          subId,
           docType: 'session_message',
           seq: seq++,
-          role: msg?.role ?? null,
-          ts: msg?.ts ?? null,
+          role: roleByMsg.get(String(r.message_id))?.role ?? null,
+          ts: msgTs,
           text,
         });
       }
@@ -159,7 +211,12 @@ export function parseFamilyDb(contentPath: string, mode: ParseMode): ParsedResul
   }
 }
 
-/** Codex 会话 JSONL → 消息文档（不产 meta，标题由 session_index/state_5 合并） */
+/**
+ * Codex 会话 JSONL → 消息文档（不产 meta，标题由 session_index/state_5 合并）。
+ * 工具调用：function_call（name+arguments）/ custom_tool_call（name+input，apply_patch 形态）/
+ * web_search_call（action.query），输出为 *_output（call_id 关联名称）→ role=tool 文档（Tools 页签）；
+ * apply_patch 的 *** File 行另产 session_file 文档（Files 页签）。
+ */
 export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedResult | null {
   let text: string;
   try {
@@ -174,6 +231,7 @@ export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedR
   let startedAt: string | null = null;
   let seq = 0;
   let firstUser: string | null = null;
+  const callNames = new Map<string, string>();
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let o: Record<string, unknown>;
@@ -190,7 +248,42 @@ export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedR
       startedAt = toIso(payload.timestamp);
       continue;
     }
-    if (o.type !== 'response_item' || payload.type !== 'message') continue;
+    if (o.type !== 'response_item') continue;
+    const ts = toIso(o.timestamp);
+    if (payload.type === 'function_call' || payload.type === 'custom_tool_call') {
+      const name = typeof payload.name === 'string' ? payload.name : 'tool';
+      const callId = payload.call_id == null ? null : String(payload.call_id);
+      if (callId) callNames.set(callId, name);
+      const args = typeof payload.arguments === 'string' ? payload.arguments.trim() : typeof payload.input === 'string' ? payload.input.trim() : '';
+      if (args || callId) {
+        docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[调用 ${name}]${args ? ' ' + args : ''}` });
+      }
+      if (args.includes('*** ')) {
+        for (const p of extractPatchFilePaths(args)) {
+          docs.push({ subId, docType: 'session_file', seq: seq++, role: 'tool', ts, text: p });
+        }
+      } else if (payload.type === 'function_call') {
+        for (const p of extractInputPaths(safeJsonParse(args || null))) {
+          docs.push({ subId, docType: 'session_file', seq: seq++, role: 'tool', ts, text: p });
+        }
+      }
+      continue;
+    }
+    if (payload.type === 'function_call_output' || payload.type === 'custom_tool_call_output') {
+      const callId = payload.call_id == null ? '' : String(payload.call_id);
+      const name = callNames.get(callId) ?? (callId ? callId.slice(0, 16) : 'tool');
+      const out = typeof payload.output === 'string' ? payload.output : '';
+      if (!out.trim() && !callId) continue;
+      docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[结果 ${name}]${out ? '\n' + out : ''}` });
+      continue;
+    }
+    if (payload.type === 'web_search_call') {
+      const action = payload.action as Record<string, unknown> | undefined;
+      const query = action && typeof action.query === 'string' ? action.query : '';
+      if (query) docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[调用 web_search] ${query}` });
+      continue;
+    }
+    if (payload.type !== 'message') continue;
     const role = typeof payload.role === 'string' ? payload.role : null;
     const content = Array.isArray(payload.content) ? (payload.content as Record<string, unknown>[]) : [];
     const body = content.map((c) => (typeof c.text === 'string' ? c.text : '')).join('\n').trim();
@@ -198,7 +291,7 @@ export function parseCodexRollout(contentPath: string, mode: ParseMode): ParsedR
     // 索引模式跳过环境注入块（首条 user 消息常为 <environment_context>）
     if (mode === 'index' && role === 'user' && body.startsWith('<environment_context>')) continue;
     if (!firstUser && role === 'user') firstUser = body;
-    docs.push({ subId, docType: 'session_message', seq: seq++, role, ts: toIso(o.timestamp), text: body });
+    docs.push({ subId, docType: 'session_message', seq: seq++, role, ts, text: body });
   }
   if (subId) {
     sessions.push({
@@ -332,6 +425,13 @@ export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): Par
       const ts = toIso(o.timestamp);
       if (!startedAt && ts) startedAt = ts;
       docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts, text: body });
+      if (type === 'function_call') {
+        const args = typeof o.arguments === 'string' ? o.arguments.trim() : '';
+        const paths = args.includes('*** ') ? extractPatchFilePaths(args) : extractInputPaths(safeJsonParse(args || null));
+        for (const p of paths) {
+          docs.push({ subId, docType: 'session_file', seq: seq++, role: 'tool', ts, text: p });
+        }
+      }
       continue;
     }
     if (type !== 'message') continue;
@@ -469,6 +569,9 @@ export function parseCursorTranscript(contentPath: string, composerId: string): 
         const name = typeof item.name === 'string' ? item.name : 'tool';
         const input = item.input == null ? '' : JSON.stringify(item.input);
         docs.push({ subId, docType: 'session_message', seq: seq++, role: 'tool', ts: null, text: `[调用 ${name}]${input ? ' ' + input : ''}` });
+        for (const p of extractInputPaths(item.input)) {
+          docs.push({ subId, docType: 'session_file', seq: seq++, role: 'tool', ts: null, text: p });
+        }
         continue;
       }
       if (item.type !== 'text' || typeof item.text !== 'string') continue;

@@ -16,8 +16,9 @@ interface Hit {
   time: string | null; title: string; snippet: string; path: string;
   model?: string | null; projectPath?: string | null; messageCount?: number | null;
 }
-interface Msg { seq: number; role: string | null; ts: string | null; text: string }
+interface Msg { seq: number; role: string | null; ts: string | null; text: string; docType?: string }
 interface ReadMeta { model: string | null; projectPath: string | null; startedAt: string | null; messageCount: number | null; subId: string }
+interface ArtifactFile { name: string; size: number; mtime: string }
 
 const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具' };
 /** 角色头部样式元数据：头像类型与配色 */
@@ -95,6 +96,55 @@ function mdHtml(m: Msg): string {
 const toolMsgs = computed(() => msgs.value.filter((m) => m.role === 'tool'));
 const systemMsgs = computed(() => msgs.value.filter((m) => m.role === 'developer' || m.role === 'system'));
 const visibleMsgs = computed(() => msgs.value.filter((m) => m.role !== 'tool'));
+
+/** Files 页签：会话涉及的文件（来自工具调用路径提取，session_file 文档按路径聚合） */
+const fileGroups = computed(() => {
+  const m = new Map<string, { path: string; count: number; lastTs: string | null }>();
+  for (const f of msgs.value) {
+    if (f.docType !== 'session_file') continue;
+    const g = m.get(f.text) ?? { path: f.text, count: 0, lastTs: null };
+    g.count++;
+    if (f.ts && (!g.lastTs || f.ts > g.lastTs)) g.lastTs = f.ts;
+    m.set(f.text, g);
+  }
+  return [...m.values()].sort((a, b) => (b.lastTs ?? '').localeCompare(a.lastTs ?? ''));
+});
+
+/** ZCode 工具结果转储（artifacts）：不入资产库，Files 页签按需读取 */
+const artifacts = ref<ArtifactFile[] | null>(null);
+const artifactPreview = ref<{ name: string; text: string; truncated: boolean } | null>(null);
+const artifactLoading = ref(false);
+async function loadArtifacts() {
+  artifactPreview.value = null;
+  artifacts.value = null;
+  if (readMeta.value?.tool !== 'zcode' || !readMeta.value.meta?.subId) return;
+  artifactLoading.value = true;
+  try {
+    const p = new URLSearchParams({ asset: String(currentAssetId()), sub: readMeta.value.meta.subId });
+    const d = await (await fetch('/api/artifacts?' + p)).json();
+    artifacts.value = d.files ?? [];
+  } catch {
+    artifacts.value = [];
+  } finally {
+    artifactLoading.value = false;
+  }
+}
+async function previewArtifact(name: string) {
+  const p = new URLSearchParams({ asset: String(currentAssetId()), sub: readMeta.value?.meta?.subId ?? '', file: name });
+  try {
+    const d = await (await fetch('/api/artifacts?' + p)).json();
+    artifactPreview.value = d.error
+      ? { name, text: `（${d.error}）`, truncated: false }
+      : { name, text: d.text ?? '', truncated: !!d.truncated };
+  } catch {
+    artifactPreview.value = { name, text: '（读取失败）', truncated: false };
+  }
+}
+function fmtSize(n: number): string {
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+  return n + ' B';
+}
 const toolLogo = computed(() => TOOLS.find((t) => t.id === readMeta.value?.tool)?.logo);
 function copyMsg(text: string) {
   navigator.clipboard?.writeText(text).catch(function () { /* 剪贴板不可用时静默 */ });
@@ -264,7 +314,7 @@ onMounted(async () => {
               { k: 'msgs', label: '消息' }, { k: 'overview', label: '概览' }, { k: 'tools', label: 'Tools' },
               { k: 'files', label: 'Files' }, { k: 'system', label: 'System' }, { k: 'raw', label: 'Raw' },
             ]" :key="t.k" class="d-tab" :class="{ on: detailTab === t.k }"
-              @click="detailTab = t.k; if (t.k === 'raw' && rawText === null) loadRaw()">
+              @click="detailTab = t.k; if (t.k === 'raw' && rawText === null) loadRaw(); if (t.k === 'files') loadArtifacts()">
               {{ t.label }}
             </button>
           </div>
@@ -351,7 +401,33 @@ onMounted(async () => {
                 <div class="dim small">项目路径</div>
                 <div class="mono small">{{ readMeta.meta?.projectPath ?? '（未记录）' }}</div>
               </div>
-              <n-empty description="文件级变更追踪将在后续版本提供（数据源为各工具的 edit 记录）" style="padding:40px 0" />
+              <div class="ov-item" style="margin-top:14px">
+                <div class="dim small" style="margin-bottom:6px">涉及文件 · {{ fileGroups.length }}</div>
+                <template v-if="fileGroups.length">
+                  <div v-for="g in fileGroups" :key="g.path" class="mono small" style="display:flex; gap:12px; justify-content:space-between; padding:3px 0" :title="g.path">
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ g.path }}</span>
+                    <span class="dim" style="white-space:nowrap">{{ g.count }} 次{{ g.lastTs ? ' · ' + fmtFull(g.lastTs) : '' }}</span>
+                  </div>
+                </template>
+                <div v-else class="dim small">本会话未解析到文件级记录（来自工具调用的路径提取）</div>
+              </div>
+              <div v-if="readMeta.tool === 'zcode'" class="ov-item" style="margin-top:14px">
+                <div class="dim small" style="margin-bottom:6px">工具结果转储（artifacts · 按需读取原文）</div>
+                <div v-if="artifactLoading" class="dim small">加载中…</div>
+                <template v-else-if="artifacts && artifacts.length">
+                  <button
+                    v-for="a in artifacts" :key="a.name" class="mono small"
+                    style="display:flex; gap:12px; justify-content:space-between; width:100%; padding:3px 0; border:none; background:none; cursor:pointer; text-align:left"
+                    :title="a.name + '（点击预览）'"
+                    @click="previewArtifact(a.name)"
+                  >
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ a.name }}</span>
+                    <span class="dim" style="white-space:nowrap">{{ fmtSize(a.size) }}</span>
+                  </button>
+                </template>
+                <div v-else-if="artifacts" class="dim small">本会话没有转储文件</div>
+              </div>
+              <pre v-if="artifactPreview" class="raw" style="margin-top:12px; max-height:420px; overflow:auto">{{ artifactPreview.text + (artifactPreview.truncated ? '\n…（超过 512KB，已截断）' : '') }}</pre>
             </div>
             <!-- System -->
             <div v-else-if="detailTab === 'system'">

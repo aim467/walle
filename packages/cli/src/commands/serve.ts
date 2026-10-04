@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets } from '@walle/core';
-import { adapters, TOOL_ROOT_DEFS } from '@walle/adapters';
+import { adapters, resolveToolRoot, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
 
 /** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
@@ -15,7 +15,13 @@ interface ApiDoc {
   role: string | null;
   ts: string | null;
   text: string;
+  docType: string;
 }
+
+/** 单条 API 消息/文档的文本上限（超大工具结果截断预览） */
+const API_DOC_TEXT_LIMIT = 64 * 1024;
+
+const isSidecar = (name: string): boolean => name.endsWith('-shm') || name.endsWith('-wal') || name.endsWith('.log');
 
 /** UI 静态文件目录：WALLE_UI_DIR > Vue 构建产物 ui/dist > 旧版单文件 ui/ */
 function resolveUiDir(): string | null {
@@ -310,7 +316,10 @@ export async function cmdServe(rest: string[]): Promise<void> {
               .filter((d) => !wanted || !d.subId || d.subId === wanted)
               .sort((a, b) => a.seq - b.seq)
               .slice(0, 500)
-              .map((d) => ({ seq: d.seq, role: d.role ?? null, ts: d.ts ?? null, text: d.text }));
+              .map((d) => ({
+                seq: d.seq, role: d.role ?? null, ts: d.ts ?? null, docType: d.docType ?? 'file',
+                text: d.text.length > API_DOC_TEXT_LIMIT ? d.text.slice(0, API_DOC_TEXT_LIMIT) + '\n…（超长截断，完整内容见资产原文）' : d.text,
+              }));
           }
         }
         json(res, {
@@ -320,6 +329,43 @@ export async function cmdServe(rest: string[]): Promise<void> {
             messageCount: metaRow.messageCount, subId: metaRow.subId,
           } : null,
         });
+        return;
+      }
+      // ZCode 工具结果转储按需读取（不入资产库）：/api/artifacts?asset=<id>&sub=<sessionId>[&file=<name>]
+      if (url.pathname === '/api/artifacts') {
+        const assetId = Number(url.searchParams.get('asset'));
+        const asset = store.getAssetById(assetId);
+        const sub = url.searchParams.get('sub') ?? '';
+        // 目录/文件名白名单校验，防路径穿越
+        const safeSeg = (s: string) => /^[\w][\w.-]{0,120}$/.test(s) ? s : null;
+        const dir = asset?.tool === 'zcode' && asset.contentHash && safeSeg(sub)
+          ? path.join(resolveToolRoot('zcode'), 'cli', 'artifacts', sub)
+          : null;
+        if (!dir || !fs.existsSync(dir)) {
+          json(res, { files: [] });
+          return;
+        }
+        const fileParam = url.searchParams.get('file');
+        if (fileParam != null) {
+          const name = safeSeg(fileParam);
+          const abs = name ? path.join(dir, name) : null;
+          if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile() || path.dirname(abs) !== path.resolve(dir)) {
+            json(res, { error: 'file not found' });
+            return;
+          }
+          const buf = fs.readFileSync(abs);
+          const text = buf.subarray(0, 512 * 1024).toString('utf8');
+          json(res, { name, size: buf.length, truncated: buf.length > 512 * 1024, text });
+          return;
+        }
+        const files = fs.readdirSync(dir, { withFileTypes: true })
+          .filter((e) => e.isFile() && !isSidecar(e.name))
+          .map((e) => {
+            const st = fs.statSync(path.join(dir, e.name));
+            return { name: e.name, size: st.size, mtime: st.mtime.toISOString() };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        json(res, { files });
         return;
       }
       res.writeHead(404);

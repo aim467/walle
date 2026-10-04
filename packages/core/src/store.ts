@@ -378,6 +378,18 @@ export class WalleStore {
       .run(assetId, row.subId, row.startedAt ?? null, row.title ?? null, row.model ?? null, row.messageCount ?? null, row.projectPath ?? null);
   }
 
+  /** 删除某资产某会话已入索引的标题文档（延迟合并改标题前去重，避免 ai-title 与 DB 标题双写） */
+  deleteSessionTitleDoc(assetId: number, subId: string): void {
+    const rows = this.db
+      .prepare("SELECT id FROM search_doc WHERE asset_id = ? AND sub_id = ? AND doc_type = 'session_title'")
+      .all(assetId, subId) as unknown[];
+    for (const raw of rows) {
+      const id = num(toRow(raw).id);
+      this.db.prepare('DELETE FROM asset_fts WHERE rowid = ?').run(id);
+      this.db.prepare('DELETE FROM search_doc WHERE id = ?').run(id);
+    }
+  }
+
   markIndexed(assetId: number, contentHash: string, now: string): void {
     this.db.prepare('UPDATE asset SET index_hash = ?, indexed_at = ? WHERE id = ?').run(contentHash, now, assetId);
   }

@@ -91,11 +91,7 @@ export const zcodeAdapter: Adapter = {
       if (a) yield a;
     }
 
-    // 5. 工具结果转储：cli/artifacts/**
-    for (const f of walkFiles(root, 'cli/artifacts', { ignoreDirNames: IGNORE_DIRS })) {
-      if (isSidecarOrLog(path.basename(f.abs))) continue;
-      const a = statAsset(root, toRel(root, f.abs), 'other', 'json', { name: path.basename(f.abs, '.json') });
-      if (a) yield a;
-    }
+    // cli/artifacts/**（大体积工具结果转储）不再入库：正文本就在 db.sqlite 的 tool part 中，
+    // 资产库与索引被数百个转储文件刷屏（降噪）；需要原文时由会话详情 Files 页签按需读取（/api/artifacts）。
   },
 };

@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Adapter, RawAsset, ScanOptions, SourceScanResult } from './types.js';
 import type { WalleStore } from './store.js';
 import type { ContentStore } from './cas.js';
+import { MAX_CONTENT_BYTES } from './cas.js';
 import { looksSensitive } from './sensitive.js';
 
 /** 读取文件头用于敏感内容兜底扫描 */
@@ -29,7 +30,7 @@ export async function runScan(
   cas: ContentStore,
   opts: ScanOptions = {},
 ): Promise<SourceScanResult[]> {
-  const maxBytes = opts.maxContentBytes ?? 16 * 1024 * 1024;
+  const maxBytes = opts.maxContentBytes ?? MAX_CONTENT_BYTES;
   const results: SourceScanResult[] = [];
 
   for (const adapter of adapters) {
@@ -71,7 +72,8 @@ export async function runScan(
 
         // 快路径：size+mtime+元数据均未变 → 视为 unchanged（不读内容、零写入）
         // 元数据（kind/name/raw_format）变化必须落到库里，否则适配器改了建模语义，旧行永远纠正不过来。
-        if (prev && prev.size === raw.size && prev.mtime === raw.mtime && prev.contentHash) {
+        // 曾因超限只记哈希未入仓的资产（CAS 对象缺失）不走快路径，限制放宽后可自动补入。
+        if (prev && prev.size === raw.size && prev.mtime === raw.mtime && prev.contentHash && cas.has(prev.contentHash)) {
           const metaSame = prev.kind === raw.kind && prev.name === (raw.name ?? null) && prev.rawFormat === raw.rawFormat;
           if (!metaSame || prev.status === 'missing') {
             store.updateAssetMeta(prev.id, raw, now); // 内容未变：不重哈希、不留快照

@@ -57,11 +57,27 @@ function fmt(rel: string): 'json' | 'jsonl' | 'sqlite' | 'markdown' | 'text' | '
   return 'text';
 }
 
-/** 插件版本目录：优先带 .in_use 标记的版本，否则取字典序最大者（最新） */
+/** 版本号逐段数值比较（字典序会把 10.x 排在 9.x 前面）；不可解析的段按字符串比 */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.');
+  const pb = b.split('.');
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = /^\d+$/.test(pa[i] ?? '') ? Number(pa[i]) : NaN;
+    const nb = /^\d+$/.test(pb[i] ?? '') ? Number(pb[i]) : NaN;
+    if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+    const sa = pa[i] ?? '';
+    const sb = pb[i] ?? '';
+    if (sa !== sb) return sa < sb ? -1 : 1;
+  }
+  return 0;
+}
+
+/** 插件版本目录：优先带 .in_use 标记的版本，否则取版本号最大者（最新） */
 function pickPluginVersion(pluginDir: string): string | null {
   let versions: string[];
   try {
-    versions = fs.readdirSync(pluginDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    versions = fs.readdirSync(pluginDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(compareVersions);
   } catch {
     return null;
   }

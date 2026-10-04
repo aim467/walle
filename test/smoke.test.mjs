@@ -145,6 +145,8 @@ test('删除文件后扫描：标记失踪', async () => {
   const missing = store.listAssets({ includeMissing: true, limit: 500 }).filter((a) => a.status === 'missing');
   assert.equal(missing.length, 1);
   assert.equal(missing[0].path, 'cap_sid');
+  // 还原 fixture，避免同一份 fixtures 跑第二次套件时本用例前置不成立
+  fs.writeFileSync(path.join(fixtures, 'codex', 'cap_sid'), 'sid-fixture');
 });
 
 // ---------- P2：索引 / 搜索 / 会话 ----------
@@ -178,6 +180,9 @@ test('五源扫描：workbuddy 产出资产并标记凭证', async () => {
   // 插件只收在用版本（0.9.0 未标记 .in_use，应被跳过）
   assert.ok(wb.some((a) => a.path.includes('fixture-plugin/1.0.0/.codebuddy-plugin/plugin.json')), '应取 .in_use 版本插件');
   assert.ok(!wb.some((a) => a.path.includes('fixture-plugin/0.9.0/')), '未在用版本插件不应入库');
+  // 无在用标记：版本号数值比较取最大（10.0.0 优先于 0.9.0，字典序会取错）
+  assert.ok(wb.some((a) => a.path.includes('fixture-plugin2/10.0.0/')), '无在用标记时应取版本号最大者');
+  assert.ok(!wb.some((a) => a.path.includes('fixture-plugin2/0.9.0/')), '不应取字典序较小的版本');
 });
 
 test('workbuddy 凭证永不入全文索引', () => {
@@ -289,6 +294,45 @@ test('read 模式解析：会话消息完整返回', () => {
   assert.ok(result.docs.length >= 2, '应解析出 2 条消息');
   assert.ok(result.docs.some((d) => d.role === 'user' && d.text.includes('mcp server')), '应含用户消息');
   assert.ok(result.sessions[0].title === '语义检索工具可用性测试', '应含会话标题');
+});
+
+test('工具调用与文件文档：Codex function_call / ZCode tool part / opencode patch', () => {
+  const cx = adapters.find((a) => a.id === 'codex');
+  const cr = cx.parse(
+    path.join(fixtures, 'codex/sessions/2026/07/08/rollout-2026-07-08T13-57-45-019f404d-bbb3-7eb0-a91e-ffed59995d84.jsonl'),
+    { kind: 'session', path: 'sessions/2026/07/08/rollout.jsonl', tool: 'codex' }, 'read',
+  );
+  assert.ok(cr, 'codex 应可解析');
+  assert.ok(cr.docs.some((d) => d.role === 'tool' && d.text.includes('[调用 shell_command]')), 'function_call 应转 tool 文档');
+  const out = cr.docs.find((d) => d.role === 'tool' && d.text.startsWith('[结果 shell_command]'));
+  assert.ok(out && out.text.includes('Exit code: 0'), 'function_call_output 应按 call_id 关联调用名');
+  assert.ok(cr.docs.some((d) => d.docType === 'session_file' && d.text === 'src/foo.py'), 'apply_patch 变更文件应入 session_file');
+  assert.ok(cr.docs.some((d) => d.role === 'assistant' && d.text === 'fixture reply'), '消息解析不受影响');
+
+  const zc = adapters.find((a) => a.id === 'zcode');
+  const zr = zc.parse(path.join(fixtures, 'zcode/cli/db/db.sqlite'), { kind: 'session', path: 'cli/db/db.sqlite', tool: 'zcode' }, 'read');
+  assert.ok(zr, 'zcode db 应可解析');
+  assert.ok(zr.docs.some((d) => d.role === 'tool' && d.text.includes('[调用 Read]')), 'tool part 应转 tool 文档');
+  assert.ok(zr.docs.some((d) => d.docType === 'session_file' && d.text === 'D:\\fixture\\proj\\config.json'), 'input.file_path 应入 session_file');
+  assert.ok(zr.docs.some((d) => d.role === 'user' && d.text.includes('语义检索')), '文本消息不受影响');
+
+  const oc = adapters.find((a) => a.id === 'opencode');
+  const orr = oc.parse(path.join(fixtures, 'opencode-data/opencode.db'), { kind: 'session', path: 'data:opencode.db', tool: 'opencode' }, 'read');
+  assert.ok(orr.docs.some((d) => d.docType === 'session_file' && d.text === 'D:/fixture/proj/src/style.css'), 'opencode patch files 应入 session_file');
+});
+
+test('CAS put 合并 SQLite -wal：运行中库不丢数据', () => {
+  const cas2 = new ContentStore(path.join(process.env.WALLE_HOME, 'objects2'));
+  const src = path.join(fixtures, 'zcode', 'cli', 'waltest.sqlite');
+  assert.ok(fs.existsSync(src + '-wal'), '固件应带未 checkpoint 的 -wal');
+  const r1 = cas2.put(src);
+  assert.ok(r1.stored, '首次应入仓');
+  const merged = (cas2.get(r1.hash) ?? Buffer.alloc(0)).toString('latin1');
+  assert.ok(merged.includes('A-row-main'), '主文件数据应在副本中');
+  assert.ok(merged.includes('B-row-wal'), '仅存在于 -wal 的数据应被合并入副本');
+  const r2 = cas2.put(src);
+  assert.equal(r2.hash, r1.hash, '合并幂等：再次 put 哈希一致');
+  assert.equal(r2.stored, false, '同内容不应重复入仓');
 });
 
 // ---------- P3：快照 / diff / zip / 复活 ----------

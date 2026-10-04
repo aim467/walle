@@ -15,7 +15,7 @@
 | `cli/rollout/model-io-sess_*.jsonl` | other | JSONL | 高 | 模型 I/O 遥测（每次模型调用一行，含完整请求/响应体，单行可达 ~100KB，单文件 1.7MB+）。**不是用户视角的会话本体**，会话本体在 db.sqlite |
 | `cli/memories/projects/<project-hash>/memory/*.md` | memory | Markdown | 低 | 记忆文件 + `MEMORY.md` 索引，人类可读，带 frontmatter |
 | `cli/agents/sess_*/agent_*/` | agent | 目录（metadata.json / output.txt / task.output） | 低 | 子代理运行记录，按会话 id 组织 |
-| `cli/artifacts/sess_*/call_*-tool-result-*.json` | other | JSON | 中 | 工具调用结果转储，按会话组织 |
+| `cli/artifacts/sess_*/call_*-tool-result-*.json` | other | JSON | 中 | 工具调用结果转储，按会话组织。**2026-10-04 起不再入库（降噪）**：正文本就在 db.sqlite 的 tool part 中；需要原文时由会话详情 Files 页签按需读取（/api/artifacts） |
 | `cli/plugins/known_marketplaces.json` | plugin | JSON | 极低 | 插件市场登记 |
 | `cli/plugins/{cache,data,marketplaces}/` | plugin | 目录 | 低 | 插件缓存与安装明细（本机 385 文件，官方市场 11 个插件）。P1 只记顶层清单，明细 P2 再入库 |
 | `v2/credentials.json` | secret | JSON | 极低 | **高敏感**：OAuth access_token、JWT、api-key（键名实测：`oauth:bigmodel:access_token`、`zcodejwttoken`、`account-provider:...:api-key` 等）⚠️ |

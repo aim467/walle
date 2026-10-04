@@ -47,6 +47,14 @@ write(
     JSON.stringify({ timestamp: '2026-07-08T05:57:46Z', ordinal: 1, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'text', text: '<environment_context>\n<cwd>C:\\Users\\Administrator</cwd>\n</environment_context>' }] } }) +
     '\n' +
     JSON.stringify({ timestamp: '2026-07-08T05:58:00Z', ordinal: 2, type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'fixture reply' }] } }) +
+    '\n' +
+    JSON.stringify({ timestamp: '2026-07-08T05:58:10Z', ordinal: 3, type: 'response_item', payload: { type: 'function_call', name: 'shell_command', arguments: '{"command":"dir"}', call_id: 'call_fx1' } }) +
+    '\n' +
+    JSON.stringify({ timestamp: '2026-07-08T05:58:11Z', ordinal: 4, type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_fx1', output: 'Exit code: 0\nOutput:\nfile.txt' } }) +
+    '\n' +
+    JSON.stringify({ timestamp: '2026-07-08T05:58:20Z', ordinal: 5, type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'call_fx2', input: '*** Begin Patch\n*** Update File: src/foo.py\n+print(1)\n*** End Patch' } }) +
+    '\n' +
+    JSON.stringify({ timestamp: '2026-07-08T05:58:21Z', ordinal: 6, type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call_fx2', output: 'Done!' } }) +
     '\n',
 );
 // rules / skills
@@ -79,7 +87,9 @@ CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT, sequen
 CREATE TABLE part (id INTEGER PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
 INSERT INTO session (id, title, path, version, time_created) VALUES ('sess_fixture1', 'fixture 会话', 'D:\\CodingProject\\walle', '0.16.9', '2026-09-30T10:00:00Z');
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (1, 'sess_fixture1', '{"role":"user"}', 0, '2026-09-30T10:00:01Z');
-INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (1, '1', 'sess_fixture1', '{"type":"text","text":"fixture prompt：帮我检查语义检索的阈值配置"}', 0, '2026-09-30T10:00:01Z');`);
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (1, '1', 'sess_fixture1', '{"type":"text","text":"fixture prompt：帮我检查语义检索的阈值配置"}', 0, '2026-09-30T10:00:01Z');
+INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (2, 'sess_fixture1', '{"role":"assistant"}', 1, '2026-09-30T10:00:02Z');
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (2, '2', 'sess_fixture1', '{"type":"tool","callID":"call_fx","tool":"Read","state":{"status":"completed","input":{"file_path":"D:\\\\fixture\\\\proj\\\\config.json"},"output":"config content"}}', 0, '2026-09-30T10:00:03Z');`);
   db.close();
 }
 write(
@@ -111,7 +121,8 @@ INSERT INTO session (id, title, directory, time_created) VALUES ('oc_sess1', '�
 INSERT INTO message (id, session_id, data, time_created) VALUES ('oc_msg1', 'oc_sess1', '{"role":"user"}', '2026-09-05T12:24:00.000Z');
 INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p1', 'oc_msg1', 'oc_sess1', '{"type":"text","text":"帮我测试 mcp server 的连接是否正常"}', '2026-09-05T12:24:00.000Z');
 INSERT INTO message (id, session_id, data, time_created) VALUES ('oc_msg2', 'oc_sess1', '{"role":"assistant"}', '2026-09-05T12:24:10.000Z');
-INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p2', 'oc_msg2', 'oc_sess1', '{"type":"text","text":"mcp server 连接测试通过，语义检索工具可用"}', '2026-09-05T12:24:10.000Z');`);
+INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p2', 'oc_msg2', 'oc_sess1', '{"type":"text","text":"mcp server 连接测试通过，语义检索工具可用"}', '2026-09-05T12:24:10.000Z');
+INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p3', 'oc_msg2', 'oc_sess1', '{"type":"patch","hash":"fixturehash","files":["D:/fixture/proj/src/style.css"]}', '2026-09-05T12:24:20.000Z');`);
   db.close();
 }
 write('opencode-data/auth.json', JSON.stringify({ 'opencode-go': { access_token: 'oc-fixture-token-0000000000000000' } }, null, 2));
@@ -165,6 +176,9 @@ write('workbuddy/skills/fixture-skill/SKILL.md', '---\nname: fixture-skill\ndesc
 write('workbuddy/plugins/cache/fixture-market/fixture-plugin/1.0.0/.codebuddy-plugin/plugin.json', JSON.stringify({ name: 'fixture-plugin', version: '1.0.0' }, null, 2));
 write('workbuddy/plugins/cache/fixture-market/fixture-plugin/1.0.0/.in_use', '');
 write('workbuddy/plugins/cache/fixture-market/fixture-plugin/0.9.0/.codebuddy-plugin/plugin.json', JSON.stringify({ name: 'fixture-plugin', version: '0.9.0' }, null, 2));
+// 无在用标记的插件：验证版本号数值比较取 10.0.0 而非字典序取 9.x
+write('workbuddy/plugins/cache/fixture-market/fixture-plugin2/0.9.0/.codebuddy-plugin/plugin.json', JSON.stringify({ name: 'fixture-plugin2', version: '0.9.0' }, null, 2));
+write('workbuddy/plugins/cache/fixture-market/fixture-plugin2/10.0.0/.codebuddy-plugin/plugin.json', JSON.stringify({ name: 'fixture-plugin2', version: '10.0.0' }, null, 2));
 // 连接器与凭证
 write('workbuddy/connectors/fixture-uid/connector-states.json', JSON.stringify({ version: 4, connectors: {} }, null, 2));
 write('workbuddy/connectors/fixture-uid/.master.key', 'fixture-connector-master-key-000000000000');
@@ -212,6 +226,25 @@ write(
   db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, custom_title TEXT, cwd TEXT, model TEXT, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER);
 INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessA}', 'WorkBuddy 数据库标题', 'D:\\fixture\\proj', 'fixture-model', 1789211122934, 1789213894036, NULL);`);
   db.close();
+}
+
+// WAL 合并固件：主文件只含 A 行，B 行提交后留在 -wal（模拟运行中的工具不 checkpoint）。
+// 在源连接保持打开（未 checkpoint）时把 主文件+wal 拷贝为固件；直接建库不 close 无效——
+// 进程退出时连接被回收会自动 checkpoint 把 wal 合并掉。
+{
+  const tmp = path.join(fixtures, 'zcode/cli/waltest-src.sqlite');
+  const dst = path.join(fixtures, 'zcode/cli/waltest.sqlite');
+  const db = new DatabaseSync(tmp);
+  db.exec('CREATE TABLE t (v TEXT);');
+  db.prepare('INSERT INTO t VALUES (?)').run('A-row-main');
+  db.exec('PRAGMA journal_mode=WAL');
+  db.prepare('INSERT INTO t VALUES (?)').run('B-row-wal');
+  fs.copyFileSync(tmp, dst);
+  fs.copyFileSync(tmp + '-wal', dst + '-wal');
+  db.close();
+  fs.rmSync(tmp, { force: true });
+  fs.rmSync(tmp + '-wal', { force: true });
+  fs.rmSync(tmp + '-shm', { force: true });
 }
 
 console.log(`fixtures 已生成: ${fixtures}`);

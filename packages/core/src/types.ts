@@ -48,7 +48,7 @@ export interface Adapter {
 /** 解析模式：index 给全文索引（过滤噪声、截断）；read 给阅读器（完整、含 developer/环境注入） */
 export type ParseMode = 'index' | 'read';
 
-export type DocType = 'session_message' | 'session_title' | 'file';
+export type DocType = 'session_message' | 'session_title' | 'session_file' | 'file';
 
 export interface ParsedDoc {
   /** 多会话容器（如 ZCode/opencode 的 db.sqlite）内的会话 id；单会话文件可省略 */

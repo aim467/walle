@@ -108,6 +108,8 @@ export function buildIndex(
     store.addSessionMeta(target, sm);
     stats.sessions++;
     if (sm.title) {
+      // 会话文件资产自己的标题文档（如 jsonl ai-title / 首条提问）先删后插，避免双写
+      store.deleteSessionTitleDoc(target, sm.subId);
       store.addDoc(target, { subId: sm.subId, docType: 'session_title', seq: -1, role: 'title', text: sm.title });
     }
   }
