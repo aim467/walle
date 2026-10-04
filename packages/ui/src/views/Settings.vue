@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { NCard, NInput, NButton, NTag, useMessage } from 'naive-ui';
-import openaiLogo from '../assets/logos/openai.png';
+import { NCard, NInput, NButton, NTag, useMessage } from 'naive-ui';import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
@@ -18,6 +17,11 @@ interface SettingsData {
   roots: RootDef[];
 }
 
+interface ScanResult {
+  tool: string; displayName: string; root: string | null; scanned: boolean;
+  total: number; new: number; updated: number; unchanged: number; missing: number;
+}
+
 const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy' };
 const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo };
 const toolOrder = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy'];
@@ -25,6 +29,8 @@ const toolOrder = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy'];
 const data = ref<SettingsData | null>(null);
 const edit = ref<Record<string, string>>({});
 const saving = ref(false);
+const needsRescan = ref(false); // 保存过路径修改后提示重扫
+const rescanning = ref(false);
 const message = useMessage();
 
 const grouped = computed(() => {
@@ -59,7 +65,8 @@ async function save() {
     });
     const d = await res.json();
     if (d.ok) {
-      message.success(d.hint ?? '已保存');
+      message.success('已保存');
+      needsRescan.value = true;
       data.value = await (await fetch('/api/settings')).json();
       edit.value = { ...data.value.toolPaths };
     } else {
@@ -71,6 +78,26 @@ async function save() {
 }
 
 function resetOne(key: string) { edit.value[key] = ''; }
+
+async function rescanNow() {
+  if (rescanning.value) return;
+  rescanning.value = true;
+  const done = message.loading('正在重新扫描全部数据源…', { duration: 0 });
+  try {
+    const d = await (await fetch('/api/scan', { method: 'POST' })).json();
+    if (!d.ok) {
+      message.error(d.error ?? '扫描失败');
+      return;
+    }
+    const parts = d.results.filter((r: ScanResult) => r.scanned)
+      .map((r: ScanResult) => `${r.displayName}：资产 ${r.total}${r.new ? ` · 新增 ${r.new}` : ''}${r.updated ? ` · 更新 ${r.updated}` : ''}`);
+    message.success(parts.length ? parts.join('；') : '未发现任何 AI 工具数据源目录');
+    needsRescan.value = false;
+  } finally {
+    done();
+    rescanning.value = false;
+  }
+}
 </script>
 
 <template>
@@ -79,7 +106,12 @@ function resetOne(key: string) { edit.value[key] = ''; }
       <h2>设置</h2>
       <div class="dim small">自定义各 AI 工具的配置路径 · 保存到 ~/.walle/config.json · 修改后需重新执行 walle scan 生效</div>
     </div>
-    <n-button type="primary" :loading="saving" :disabled="!dirty" @click="save">保存修改</n-button>
+    <div class="head-actions">
+      <n-button v-if="needsRescan" size="small" type="warning" secondary :loading="rescanning" @click="rescanNow">
+        立即重新扫描
+      </n-button>
+      <n-button type="primary" :loading="saving" :disabled="!dirty" @click="save">保存修改</n-button>
+    </div>
   </div>
 
   <n-card v-for="g in grouped" :key="g.tool" size="small" class="tool-card">
@@ -110,12 +142,13 @@ function resetOne(key: string) { edit.value[key] = ''; }
   </n-card>
 
   <div v-if="data" class="dim small" style="margin-top:12px">
-    清空输入框即恢复默认路径。路径不存在的工具在扫描时会被跳过（与未安装一致）。
+    清空输入框即恢复默认路径。路径不存在的工具在扫描时会被跳过（与未安装一致）。修改路径保存后需重新扫描才会生效。
   </div>
 </template>
 
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
+.head-actions { display: flex; gap: 10px; align-items: center; }
 .tool-card { margin-bottom: 14px; }
 .tool-head { display: flex; align-items: center; gap: 8px; }
 .tool-logo { width: 18px; height: 18px; object-fit: contain; }

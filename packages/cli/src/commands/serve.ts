@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { WriteEngine, readWalleConfig, writeWalleConfig, maskSecrets } from '@walle/core';
+import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets } from '@walle/core';
 import { adapters, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
 
@@ -67,6 +67,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
   const { values } = parseArgs({ args: rest, options: { port: { type: 'string', default: '4173' } } });
   const port = Number(values.port) || 4173;
   const { store, cas } = openStores();
+  let scanning = false; // 防止扫描请求并发重入（扫描与 serve 共用同一 store 连接）
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -232,6 +233,28 @@ export async function cmdServe(rest: string[]): Promise<void> {
             };
           }),
         });
+        return;
+      }
+      if (url.pathname === '/api/scan' && req.method === 'POST') {
+        // 触发重新扫描（Web UI 设置改路径 / 总览刷新数据）；?source=<tool> 只扫单个工具
+        if (scanning) {
+          json(res, { ok: false, error: '已有一次扫描正在进行，请稍候' });
+          return;
+        }
+        const source = url.searchParams.get('source') || undefined;
+        scanning = true;
+        runScan(adapters, store, cas, { sources: source ? [source] : undefined })
+          .then((results) =>
+            json(res, {
+              ok: true,
+              results: results.map((r) => ({
+                tool: r.tool, displayName: r.displayName, root: r.root, scanned: r.scanned,
+                total: r.total, new: r.new, updated: r.updated, unchanged: r.unchanged, missing: r.missing,
+              })),
+            }),
+          )
+          .catch((err) => json(res, { ok: false, error: (err as Error).message }))
+          .finally(() => { scanning = false; });
         return;
       }
       if (url.pathname === '/api/write' && req.method === 'POST') {
