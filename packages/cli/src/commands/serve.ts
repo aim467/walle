@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets, createZip } from '@walle/core';
@@ -74,6 +75,19 @@ function json(res: http.ServerResponse, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
+/** 有副作用接口的同源校验：浏览器跨源发来的请求必带 Origin 且与本服务不符（form 提交也带），
+ *  直接 curl/fetch（无 Origin）放行。防其它本机网页跨源触发写类接口（CSRF 面）。 */
+function sameOrigin(req: http.IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const o = new URL(String(origin));
+    return `${o.hostname}:${o.port || (o.protocol === 'https:' ? '443' : '80')}` === (req.headers.host ?? '');
+  } catch {
+    return false;
+  }
+}
+
 /** 递归收集目录下普通文件为 zip 条目（相对 base 的路径；符号链接跳过防环） */
 function collectDirEntries(dir: string, base: string, out: ZipEntry[]): void {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -90,6 +104,20 @@ export async function cmdServe(rest: string[]): Promise<void> {
   const port = Number(values.port) || 4173;
   const { store, cas } = openStores();
   let scanning = false; // 防止扫描请求并发重入（扫描与 serve 共用同一 store 连接）
+
+  /** 解析 skill 资产所在的技能目录（适配器 resolve + source 根），目录不存在返回 null */
+  function skillDirOf(assetId: number): { dir: string; name: string } | null {
+    const asset = store.getAssetById(assetId);
+    if (!asset || asset.kind !== 'skill') return null;
+    const adapter = adapters.find((x) => x.id === asset.tool);
+    const rootRow = store.db.prepare('SELECT root_path FROM source WHERE tool = ?').get(asset.tool) as { root_path: string } | undefined;
+    const abs = adapter && rootRow
+      ? (adapter.resolve ? adapter.resolve(rootRow.root_path, asset.path) : path.resolve(rootRow.root_path, asset.path))
+      : null;
+    const dir = abs ? path.dirname(abs) : null;
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
+    return { dir, name: path.basename(dir) || 'skill' };
+  }
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -204,6 +232,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
       if (url.pathname === '/api/settings') {
         // 设置页：各工具数据源根路径（覆盖/默认/生效值）
         if (req.method === 'POST') {
+          if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
           let body = '';
           req.on('data', (c) => {
             body += c;
@@ -263,6 +292,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
       }
       if (url.pathname === '/api/scan' && req.method === 'POST') {
         // 触发重新扫描（Web UI 设置改路径 / 总览刷新数据）；?source=<tool> 只扫单个工具
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
         if (scanning) {
           json(res, { ok: false, error: '已有一次扫描正在进行，请稍候' });
           return;
@@ -286,6 +316,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
       if (url.pathname === '/api/write' && req.method === 'POST') {
         // P4 Web UI 编辑下发：body = { assetId, content, force? }
         // 仅监听 127.0.0.1 的本机页面可访问；仍要求全局写回开关已开启
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
         let body = '';
         req.on('data', (c) => {
           body += c;
@@ -418,9 +449,73 @@ export async function cmdServe(rest: string[]): Promise<void> {
         res.end(zip);
         return;
       }
+      // 技能文件清单：GET /api/skills/files?asset=<id> —— 列出技能目录全部文件（含子目录）
+      if (url.pathname === '/api/skills/files') {
+        const d = skillDirOf(Number(url.searchParams.get('asset')));
+        if (!d) { json(res, { error: '技能目录不存在' }); return; }
+        const files: { path: string; size: number; mtime: string }[] = [];
+        const walk = (cur: string, rel: string): void => {
+          for (const e of fs.readdirSync(cur, { withFileTypes: true })) {
+            if (e.isSymbolicLink()) continue;
+            const abs = path.join(cur, e.name);
+            const r = rel ? `${rel}/${e.name}` : e.name;
+            if (e.isDirectory()) walk(abs, r);
+            else if (e.isFile()) {
+              const st = fs.statSync(abs);
+              files.push({ path: r, size: st.size, mtime: st.mtime.toISOString() });
+            }
+          }
+        };
+        walk(d.dir, '');
+        files.sort((a, b) => a.path.localeCompare(b.path));
+        json(res, { dir: d.dir, files });
+        return;
+      }
+      // 技能文件预览：GET /api/skills/file?asset=<id>&path=<相对路径> —— 文本预览（512KB 截断，二进制拒绝）
+      if (url.pathname === '/api/skills/file') {
+        const d = skillDirOf(Number(url.searchParams.get('asset')));
+        const seg = url.searchParams.get('path') ?? '';
+        const rel = seg.split('/').filter((p) => p && p !== '.' && p !== '..').join('/');
+        const abs = d && rel ? path.resolve(d.dir, rel) : null;
+        if (!d || !abs || !abs.startsWith(path.resolve(d.dir) + path.sep) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+          json(res, { error: '文件不存在' });
+          return;
+        }
+        const buf = fs.readFileSync(abs);
+        if (buf.subarray(0, 8192).includes(0)) { json(res, { error: '二进制文件不支持预览', size: buf.length }); return; }
+        const truncated = buf.length > 512 * 1024;
+        json(res, {
+          path: rel, size: buf.length, truncated,
+          text: buf.subarray(0, 512 * 1024).toString('utf8'),
+        });
+        return;
+      }
+      // 本地打开：POST /api/skills/open body { asset } —— 用系统文件管理器打开技能目录（仅本机 127.0.0.1 服务）
+      if (url.pathname === '/api/skills/open' && req.method === 'POST') {
+        if (!sameOrigin(req)) { json(res, { error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 8 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          try {
+            const { asset } = JSON.parse(body) as { asset?: number };
+            const d = skillDirOf(Number(asset));
+            if (!d) { json(res, { error: '技能目录不存在' }); return; }
+            const opener = process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+            spawn(opener, [d.dir], { detached: true, stdio: 'ignore' }).unref();
+            json(res, { ok: true, dir: d.dir });
+          } catch (err) {
+            json(res, { error: (err as Error).message });
+          }
+        });
+        return;
+      }
       // 技能导入·发现：POST /api/skills/import/discover body { url } —— 下载 zip 并列出候选技能（不写盘）
       if (url.pathname === '/api/skills/import/discover' && req.method === 'POST') {
         if (!readWalleConfig().allowWrite) { json(res, { error: '写回开关未开启（walle write-enable）' }); return; }
+        if (!sameOrigin(req)) { json(res, { error: '跨源请求已拒绝' }); return; }
         let body = '';
         req.on('data', (c) => {
           body += c;
@@ -443,6 +538,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
       // 技能导入·安装：POST /api/skills/import body { url, skills: string[], targets: [{tool, mode}], overwrite? }
       if (url.pathname === '/api/skills/import' && req.method === 'POST') {
         if (!readWalleConfig().allowWrite) { json(res, { error: '写回开关未开启（walle write-enable）' }); return; }
+        if (!sameOrigin(req)) { json(res, { error: '跨源请求已拒绝' }); return; }
         let body = '';
         req.on('data', (c) => {
           body += c;

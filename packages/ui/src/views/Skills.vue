@@ -28,6 +28,7 @@ const TOOLS: ToolDef[] = [
 ];
 const toolDef = (t: string) => TOOLS.find((x) => x.id === t);
 const toolName = (t: string) => toolDef(t)?.name ?? t;
+const toolLogo = (t: string) => toolDef(t)?.logo;
 /** 接入工具盒子只展示 AI 工具（agents 是存储库本身，不算接入方） */
 const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy'];
 
@@ -35,7 +36,7 @@ const skills = ref<SkillGroup[]>([]);
 const loading = ref(false);
 const q = ref('');
 const statusFilter = ref<'all' | 'store' | 'linked' | 'copy'>('all');
-const sourceFilter = ref('');
+const activeTool = ref<string | null>(null);
 const sortBy = ref('name');
 const selected = ref<SkillGroup | null>(null);
 const activeTab = ref<'overview' | 'markdown' | 'files' | 'usage'>('overview');
@@ -54,12 +55,6 @@ const statusMeta = {
   linked: { label: '已链接', type: 'success' },
   copy: { label: '目录副本', type: 'default' },
 } as const;
-const STATUS_CHIPS = [
-  { v: 'all', label: '全部' },
-  { v: 'store', label: '共享库' },
-  { v: 'linked', label: '链接接入' },
-  { v: 'copy', label: '目录副本' },
-] as const;
 
 function maxSize(g: SkillGroup): number { return g.entries.reduce((m, e) => Math.max(m, e.size ?? 0), 0); }
 function lastMtime(g: SkillGroup): string { return g.entries.reduce((m, e) => (e.mtime > m ? e.mtime : m), ''); }
@@ -69,13 +64,10 @@ function pathOf(g: SkillGroup): string {
   const p = g.storePath ?? g.entries[0]?.abs ?? '';
   return p.replace(/[/\\]SKILL\.md$/i, '');
 }
-
-const entryColumns: DataTableColumns<SkillEntry> = [
-  { title: '工具', key: 'tool', width: 110, render: (e) => toolName(e.tool) },
-  { title: '接入方式', key: 'linked', width: 90, render: (e) => (e.linked ? '符号链接' : '目录副本') },
-  { title: '路径', key: 'abs', ellipsis: { tooltip: true }, render: (e) => h('span', { class: 'mono' }, e.abs || e.path) },
-  { title: '大小', key: 'size', width: 70, render: (e) => fmtSize(e.size) },
-];
+/** 详情头部 logo：共享库本体用 agents 图标，否则取首个接入工具 */
+function groupLogo(g: SkillGroup): string | undefined {
+  return g.storePath ? agentsLogo : toolLogo(g.entries[0]?.tool ?? '');
+}
 
 /** 接入工具状态：链接/目录副本为真接入；Codex 对共享库技能是原生发现（codex.exe 硬编码 .agents/skills，实测） */
 function toolState(g: SkillGroup, toolId: string): { on: boolean; label: string } {
@@ -85,10 +77,26 @@ function toolState(g: SkillGroup, toolId: string): { on: boolean; label: string 
   return { on: false, label: '未接入' };
 }
 
+/** 切换工具作用域；若当前选中技能不在新作用域内则自动选中第一个 */
+function setTool(t: string | null) {
+  activeTool.value = t;
+  const list = filtered.value;
+  if (list.length && !list.some((s) => s.key === selected.value?.key)) {
+    selected.value = list[0];
+    loadDetail(selected.value);
+  }
+}
+
+/** 技能是否在某工具作用域内（Codex 含原生发现的共享库技能，与详情页口径一致） */
+function inToolScope(g: SkillGroup, toolId: string): boolean {
+  return g.entries.some((e) => e.tool === toolId) || (toolId === 'codex' && !!g.storePath);
+}
+
+const scoped = computed(() => (activeTool.value ? skills.value.filter((s) => inToolScope(s, activeTool.value!)) : skills.value));
+
 const filtered = computed(() => {
-  let rows = skills.value;
+  let rows = scoped.value;
   if (statusFilter.value !== 'all') rows = rows.filter((s) => groupStatus(s) === statusFilter.value);
-  if (sourceFilter.value) rows = rows.filter((s) => s.entries.some((e) => e.tool === sourceFilter.value));
   const k = q.value.trim().toLowerCase();
   if (k) rows = rows.filter((s) => s.name.toLowerCase().includes(k) || (s.description ?? '').toLowerCase().includes(k));
   const by = sortBy.value;
@@ -100,13 +108,16 @@ const filtered = computed(() => {
   });
 });
 
-const stats = computed(() => ({
-  total: skills.value.length,
-  shared: skills.value.filter((s) => s.storePath).length,
-  linked: skills.value.filter((s) => s.entries.some((e) => e.linked)).length,
-}));
+const stats = computed(() => ({ total: skills.value.length }));
 
-const sourceOptions = [{ label: '来源：全部', value: '' }, ...TOOLS.map((t) => ({ label: t.name, value: t.id }))];
+/** 第二层状态 chips（带计数，随工具作用域联动） */
+const statusChips = computed(() => [
+  { v: 'all', label: '全部', n: scoped.value.length },
+  { v: 'store', label: '共享库', n: scoped.value.filter((s) => groupStatus(s) === 'store').length },
+  { v: 'linked', label: '链接接入', n: scoped.value.filter((s) => groupStatus(s) === 'linked').length },
+  { v: 'copy', label: '目录副本', n: scoped.value.filter((s) => groupStatus(s) === 'copy').length },
+] as const);
+
 const sortOptions = [
   { label: '排序：名称 A-Z', value: 'name' },
   { label: '排序：接入数量', value: 'count' },
@@ -126,6 +137,62 @@ function onMore(key: string) {
   if (key === 'copy-id' && selected.value) copyText(selected.value.name);
   else if (key === 'rescan') rescan();
   else if (key === 'download' && selected.value) downloadSkill(selected.value);
+}
+
+async function load() {
+  loading.value = true;
+  try {
+    const d = await (await fetch('/api/skills')).json();
+    skills.value = d.skills ?? [];
+    if (!selected.value || !skills.value.some((s) => s.key === selected.value?.key)) {
+      selected.value = skills.value[0] ?? null;
+      if (selected.value) loadDetail(selected.value);
+    }
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function loadDetail(g: SkillGroup) {
+  selected.value = g;
+  activeTab.value = 'overview';
+  mdText.value = null;
+  files.value = [];
+  preview.value = null;
+  const entry = g.entries.find((e) => e.tool === 'agents') ?? g.entries[0];
+  if (!entry) return;
+  mdLoading.value = true;
+  try {
+    const d = await (await fetch(`/api/source?asset=${entry.assetId}&raw=1`)).json();
+    const raw = d.error ? `（${d.error}）` : (d.content ?? '') + (d.truncated ? '\n…（截断）' : '');
+    // 预览剥离 frontmatter（元信息已在头部与基本信息区展示）
+    mdText.value = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  } finally {
+    mdLoading.value = false;
+  }
+}
+
+async function rescan() {
+  const done = message.loading('正在重新扫描共享库…', { duration: 0 });
+  try {
+    const d = await (await fetch('/api/scan?source=agents', { method: 'POST' })).json();
+    if (!d.ok) { message.error(d.error ?? '扫描失败'); return; }
+    message.success('共享库扫描完成');
+    await load();
+  } finally {
+    done();
+  }
+}
+
+function copyText(text: string) {
+  navigator.clipboard?.writeText(text).then(
+    function () { message.success('已复制'); },
+    function () { message.error('剪贴板不可用'); },
+  );
+}
+
+function notYet(what: string) {
+  message.info(`${what}能力将在后续版本提供`);
 }
 
 /** 下载技能：优先共享库本体条目，打包其磁盘目录（后端回退 CAS 的 SKILL.md） */
@@ -213,175 +280,195 @@ async function installSkills() {
   }
 }
 
-async function load() {
-  loading.value = true;
-  try {
-    const d = await (await fetch('/api/skills')).json();
-    skills.value = d.skills ?? [];
-    if (!selected.value) {
-      selected.value = skills.value[0] ?? null;
-      if (selected.value) loadDetail(selected.value);
-    }
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadDetail(g: SkillGroup) {
-  selected.value = g;
-  activeTab.value = 'overview';
-  mdText.value = null;
-  const entry = g.entries.find((e) => e.tool === 'agents') ?? g.entries[0];
-  if (!entry) return;
-  mdLoading.value = true;
-  try {
-    const d = await (await fetch(`/api/source?asset=${entry.assetId}&raw=1`)).json();
-    const raw = d.error ? `（${d.error}）` : (d.content ?? '') + (d.truncated ? '\n…（截断）' : '');
-    // 预览剥离 frontmatter（元信息已在头部与基本信息区展示）
-    mdText.value = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
-  } finally {
-    mdLoading.value = false;
-  }
-}
-
-async function rescan() {
-  const done = message.loading('正在重新扫描共享库…', { duration: 0 });
-  try {
-    const d = await (await fetch('/api/scan?source=agents', { method: 'POST' })).json();
-    if (!d.ok) { message.error(d.error ?? '扫描失败'); return; }
-    message.success('共享库扫描完成');
-    await load();
-  } finally {
-    done();
-  }
-}
-
-function copyText(text: string) {
-  navigator.clipboard?.writeText(text).then(
-    function () { message.success('已复制'); },
-    function () { message.error('剪贴板不可用'); },
-  );
-}
-
-function notYet(what: string) {
-  message.info(`${what}能力将在后续版本提供`);
-}
-
 function mdHtml(src: string): string {
   return DOMPurify.sanitize(marked.parse(src) as string);
 }
+
+/** 文件 Tab：技能目录全部文件列表 + 点击预览 + 本地打开 */
+interface SkillFile { path: string; size: number; mtime: string }
+const files = ref<SkillFile[]>([]);
+const filesLoading = ref(false);
+const filesError = ref('');
+const preview = ref<{ path: string; loading: boolean; text: string; truncated: boolean; size: number; isMd: boolean } | null>(null);
+const openingLocal = ref(false);
+
+const activeAssetEntry = computed(() => {
+  const g = selected.value;
+  return g ? (g.entries.find((e) => e.tool === 'agents') ?? g.entries[0]) : null;
+});
+
+async function loadFiles() {
+  const entry = activeAssetEntry.value;
+  if (!entry) return;
+  filesLoading.value = true;
+  filesError.value = '';
+  preview.value = null;
+  try {
+    const d = await (await fetch(`/api/skills/files?asset=${entry.assetId}`)).json();
+    if (d.error) { filesError.value = d.error; files.value = []; return; }
+    files.value = d.files ?? [];
+  } finally {
+    filesLoading.value = false;
+  }
+}
+async function openPreview(f: SkillFile) {
+  const entry = activeAssetEntry.value;
+  if (!entry) return;
+  preview.value = { path: f.path, loading: true, text: '', truncated: false, size: f.size, isMd: /\.md$/i.test(f.path) };
+  const d = await (await fetch(`/api/skills/file?asset=${entry.assetId}&path=${encodeURIComponent(f.path)}`)).json();
+  if (preview.value.path !== f.path) return; // 用户已切到别的文件
+  if (d.error) { message.error(d.error); preview.value = null; return; }
+  const isMd = /\.md$/i.test(f.path);
+  const text = isMd ? String(d.text ?? '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '') : String(d.text ?? '');
+  preview.value = { path: f.path, loading: false, text, truncated: !!d.truncated, size: d.size ?? f.size, isMd };
+}
+async function openLocal() {
+  const entry = activeAssetEntry.value;
+  if (!entry) return;
+  openingLocal.value = true;
+  try {
+    const d = await (await fetch('/api/skills/open', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ asset: entry.assetId }),
+    })).json();
+    if (d.error) message.error(d.error);
+    else message.success('已在文件管理器中打开');
+  } finally {
+    openingLocal.value = false;
+  }
+}
+/** 文件树展示：扁平列表 + 按目录深度缩进；目录行前缀区分 */
+const fileRows = computed(() => files.value.map((f) => {
+  const segs = f.path.split('/');
+  return { ...f, depth: segs.length - 1, label: segs[segs.length - 1], dir: segs.length > 1 ? segs.slice(0, -1).join('/') : '' };
+}));
+
 function fmtSize(n: number): string {
   if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
   return n + ' B';
 }
 function fmtDate(iso: string): string { return iso ? iso.replace('T', ' ').slice(0, 16) : '-'; }
 
+/** 切详情 Tab：文件 Tab 懒加载文件清单 */
+function setTab(t: typeof activeTab.value) {
+  activeTab.value = t;
+  if (t === 'files' && !files.value.length && !filesLoading.value) loadFiles();
+}
+
+const entryColumns: DataTableColumns<SkillEntry> = [
+  { title: '工具', key: 'tool', width: 110, render: (e) => toolName(e.tool) },
+  { title: '接入方式', key: 'linked', width: 90, render: (e) => (e.linked ? '符号链接' : '目录副本') },
+  { title: '路径', key: 'abs', ellipsis: { tooltip: true }, render: (e) => h('span', { class: 'mono' }, e.abs || e.path) },
+  { title: '大小', key: 'size', width: 70, render: (e) => fmtSize(e.size) },
+];
+
 onMounted(load);
 </script>
 
 <template>
   <div class="page">
-    <div class="page-head">
-      <div>
-        <h2>技能管理</h2>
-        <div class="dim small">跨工具技能全景 · 共享库 {{ stats.shared }} · 链接接入 {{ stats.linked }} / 共 {{ stats.total }} 项</div>
+    <!-- 第一层：AI 工具 Tab（对齐资产库布局） -->
+    <div class="toolbar glassbar">
+      <div class="tabs-strip">
+        <button class="tab" :class="{ on: activeTool === null }" @click="setTool(null)">
+          <span class="tab-dot">A</span>
+          <span class="tab-name">全部工具</span>
+          <span class="tab-n">{{ stats.total }}</span>
+        </button>
+        <button
+          v-for="t in TOOLS" :key="t.id"
+          class="tab" :class="{ on: activeTool === t.id }" @click="setTool(t.id)"
+        >
+          <img class="tab-logo" :src="t.logo" :alt="t.id">
+          <span class="tab-name">{{ t.name }}</span>
+          <span class="tab-n">{{ skills.filter((s) => inToolScope(s, t.id)).length }}</span>
+        </button>
       </div>
-      <div class="head-actions">
-        <n-button size="small" type="primary" @click="notYet('新建技能')">＋ 新建技能</n-button>
-        <n-button size="small" secondary @click="openImport">↓ 导入技能</n-button>
-      </div>
+      <n-input v-model:value="q" placeholder="搜索技能…" size="small" round clearable class="search" />
     </div>
 
-    <div class="workspace">
+    <!-- 第二层：状态筛选 + 页面动作 -->
+    <div class="typerow">
+      <button
+        v-for="c in statusChips" :key="c.v"
+        class="tchip" :class="{ on: statusFilter === c.v }" @click="statusFilter = c.v"
+      >{{ c.label }}<span class="tchip-n">{{ c.n }}</span></button>
+      <span class="flex1" />
+      <n-button size="tiny" round secondary @click="notYet('新建技能')">＋ 新建技能</n-button>
+      <n-button size="tiny" round secondary @click="openImport">↓ 导入技能</n-button>
+    </div>
+
+    <div class="body">
       <!-- 左：技能清单 -->
-      <div class="panel list-panel">
-        <div class="list-tools">
-          <n-input v-model:value="q" placeholder="搜索技能名称、描述…" size="small" round clearable />
-          <n-tabs
-            type="segment" size="small" class="status-seg" :value="statusFilter"
-            @update:value="(v) => (statusFilter = v as typeof statusFilter)"
-          >
-            <n-tab v-for="c in STATUS_CHIPS" :key="c.v" :name="c.v">{{ c.label }}</n-tab>
-          </n-tabs>
-          <div class="advanced">
-            <n-select v-model:value="sourceFilter" :options="sourceOptions" size="tiny" />
-            <n-select v-model:value="sortBy" :options="sortOptions" size="tiny" />
-          </div>
+      <div class="list card">
+        <div class="list-head">
+          <span class="lh-title">技能</span>
+          <span class="lh-n">{{ filtered.length }} 项 · 数据来自本地扫描</span>
+          <span class="flex1" />
+          <n-select v-model:value="sortBy" :options="sortOptions" size="small" class="sortsel" />
         </div>
-        <div class="list-summary dim">
-          <span>{{ filtered.length }} 个技能</span>
-          <span>数据来自本地扫描</span>
-        </div>
-        <div class="skill-list">
+        <div class="list-scroll">
           <div
-            v-for="s in filtered" :key="s.key" class="skill-card"
-            :class="{ selected: selected?.key === s.key }" @click="loadDetail(s)"
+            v-for="s in filtered" :key="s.key" class="srow"
+            :class="{ sel: selected?.key === s.key }" @click="loadDetail(s)"
           >
-            <div class="skill-head">
-              <span class="skill-name">{{ s.name }}</span>
-              <span class="skill-count dim">{{ s.entries.length }} 处</span>
-            </div>
-            <div class="skill-desc dim">{{ s.description ?? '（无描述）' }}</div>
-            <div class="meta">
-              <n-tag size="small" round :bordered="false" :type="statusMeta[groupStatus(s)].type">
-                {{ statusMeta[groupStatus(s)].label }}
-              </n-tag>
-              <n-tag v-for="e in s.entries.slice(0, 2)" :key="e.tool + e.path" size="small" round>{{ toolName(e.tool) }}</n-tag>
-              <n-tag v-if="s.entries.length > 2" size="small" round>+{{ s.entries.length - 2 }}</n-tag>
-            </div>
+            <img class="srow-logo" :src="groupLogo(s)" alt="">
+            <span class="srow-main">
+              <span class="srow-name">
+                <span class="srow-name-t">{{ s.name }}</span>
+                <n-tag size="tiny" round :bordered="false" :type="statusMeta[groupStatus(s)].type">
+                  {{ statusMeta[groupStatus(s)].label }}
+                </n-tag>
+              </span>
+              <span class="srow-desc dim">{{ s.description ?? '（无描述）' }}</span>
+            </span>
+            <span class="srow-tools">
+              <img
+                v-for="e in s.entries.slice(0, 3)" :key="e.tool + e.path"
+                class="srow-tool-logo" :src="toolLogo(e.tool)" :alt="toolName(e.tool)" :title="toolName(e.tool)"
+              >
+              <span v-if="s.entries.length > 3" class="dim small">+{{ s.entries.length - 3 }}</span>
+            </span>
           </div>
           <n-empty v-if="!filtered.length && !loading" description="没有匹配的技能" size="small" style="padding:36px 0" />
         </div>
       </div>
 
-      <!-- 右：详情 -->
-      <div class="panel detail">
+      <!-- 右：详情 Inspector -->
+      <div class="detail card">
         <template v-if="selected">
-          <div class="detail-head">
-            <div class="detail-title-row">
-              <div class="dt-main">
-                <div class="detail-title">{{ selected.name }}</div>
-                <div class="detail-desc">{{ selected.description ?? '（无描述）' }}</div>
-              </div>
-              <div class="head-actions">
-                <n-button size="small" secondary @click="notYet('编辑技能')">编辑</n-button>
-                <n-dropdown trigger="click" :options="moreOptions" @select="onMore">
-                  <n-button size="small" secondary>···</n-button>
-                </n-dropdown>
-              </div>
+          <div class="insp-head">
+            <img class="insp-logo" :src="groupLogo(selected)" alt="">
+            <div class="insp-id">
+              <div class="insp-title">{{ selected.name }}</div>
+              <div class="insp-desc dim">{{ selected.description ?? '（无描述）' }}</div>
             </div>
-            <div class="pathbar mono" :title="pathOf(selected)">{{ pathOf(selected) }}</div>
-            <div class="detail-meta dim small">
-              <span>状态 <strong>{{ statusMeta[groupStatus(selected)].label }}</strong></span>
+            <div class="insp-act">
+              <n-button size="tiny" round secondary @click="notYet('编辑技能')">编辑</n-button>
+              <n-dropdown trigger="click" :options="moreOptions" @select="onMore">
+                <n-button size="tiny" round secondary>···</n-button>
+              </n-dropdown>
+            </div>
+          </div>
+          <div class="detail-sub">
+            <span class="pathbar mono" :title="pathOf(selected)">{{ pathOf(selected) }}</span>
+            <span class="detail-meta dim small">
               <span>来源 <strong>{{ sourceOf(selected) }}</strong></span>
               <span>大小 <strong>{{ fmtSize(maxSize(selected)) }}</strong></span>
+              <span>修改 <strong>{{ fmtDate(lastMtime(selected)) }}</strong></span>
               <span>接入 <strong>{{ selected.entries.length }} 处</strong></span>
-            </div>
-            <n-tabs
-              type="line" size="small" class="detail-tabs" :value="activeTab"
-              @update:value="(v) => (activeTab = v as typeof activeTab)"
-            >
-              <n-tab name="overview">概览</n-tab>
-              <n-tab name="markdown">SKILL.md</n-tab>
-              <n-tab name="files">文件</n-tab>
-              <n-tab name="usage">使用情况</n-tab>
-            </n-tabs>
+            </span>
+          </div>
+          <div class="insp-tabs">
+            <button class="itab" :class="{ on: activeTab === 'overview' }" @click="setTab('overview')">概览</button>
+            <button class="itab" :class="{ on: activeTab === 'markdown' }" @click="setTab('markdown')">SKILL.md</button>
+            <button class="itab" :class="{ on: activeTab === 'files' }" @click="setTab('files')">文件</button>
+            <button class="itab" :class="{ on: activeTab === 'usage' }" @click="setTab('usage')">使用情况</button>
           </div>
 
           <div class="detail-body">
             <!-- 概览 -->
             <template v-if="activeTab === 'overview'">
-              <div class="section-title">基本信息</div>
-              <div class="grid">
-                <div class="info-card">
-                  <div class="info-label">状态</div>
-                  <div class="status"><span class="dot green" />{{ statusMeta[groupStatus(selected)].label }}</div>
-                </div>
-                <div class="info-card"><div class="info-label">来源</div><div class="info-value">{{ sourceOf(selected) }}</div></div>
-                <div class="info-card"><div class="info-label">大小</div><div class="info-value">{{ fmtSize(maxSize(selected)) }}</div></div>
-                <div class="info-card"><div class="info-label">修改时间</div><div class="info-value">{{ fmtDate(lastMtime(selected)) }}</div></div>
-              </div>
-
               <div class="section-title">接入工具</div>
               <div class="tool-boxes">
                 <div
@@ -389,7 +476,7 @@ onMounted(load);
                   :class="{ connected: toolState(selected, t).on }"
                 >
                   <div class="tool-head">
-                    <img v-if="toolDef(t)?.logo" class="tool-logo" :src="toolDef(t)?.logo" alt="">
+                    <img v-if="toolLogo(t)" class="tool-logo" :src="toolLogo(t)" alt="">
                     <span class="tool-name">{{ toolName(t) }}</span>
                   </div>
                   <div class="tool-state" :class="{ off: !toolState(selected, t).on }">
@@ -427,20 +514,44 @@ onMounted(load);
 
             <!-- 文件 -->
             <template v-else-if="activeTab === 'files'">
-              <div class="section-title">技能文件</div>
-              <div class="section-sub dim small">walle 只收 SKILL.md 入库（降噪）；技能目录的附属脚本/参考文档不入库，需要时打开本地目录查看</div>
-              <div class="tree">
-                <div class="tree-row">
-                  <span class="tree-icon">▾</span>
-                  <strong class="mono">{{ selected.name }}/</strong>
-                  <span class="tree-size dim">{{ fmtSize(maxSize(selected)) }}</span>
+              <div class="files-head">
+                <div>
+                  <div class="section-title">技能文件</div>
+                  <div class="section-sub dim small">
+                    技能目录全部文件（含附属脚本/参考文档）；walle 入库仅收 SKILL.md（降噪）
+                  </div>
                 </div>
-                <div v-for="e in selected.entries" :key="e.tool + e.path" class="tree-row indent1">
-                  <span class="tree-icon">◇</span>
-                  <span class="mono">SKILL.md</span>
-                  <span class="tree-size dim">{{ toolName(e.tool) }} · {{ fmtSize(e.size) }}</span>
-                </div>
+                <n-button size="tiny" round secondary :loading="openingLocal" @click="openLocal">⌖ 在本地打开</n-button>
               </div>
+              <div v-if="filesLoading" class="dim small" style="padding:16px 0">加载中…</div>
+              <div v-else-if="filesError" class="dim small" style="padding:16px 0">{{ filesError }}</div>
+              <template v-else>
+                <div class="filetree">
+                  <button
+                    v-for="f in fileRows" :key="f.path"
+                    class="frow" :class="{ sel: preview?.path === f.path }"
+                    :style="{ paddingLeft: 12 + f.depth * 18 + 'px' }"
+                    @click="openPreview(f)"
+                  >
+                    <span class="frow-icon">{{ f.dir ? '└' : '◇' }}</span>
+                    <span class="frow-name mono" :title="f.path">{{ f.label }}</span>
+                    <span class="frow-dir dim small" v-if="f.dir">{{ f.dir }}/</span>
+                    <span class="frow-size dim">{{ fmtSize(f.size) }}</span>
+                  </button>
+                </div>
+                <div v-if="preview" class="fpreview">
+                  <div class="fpreview-bar">
+                    <span class="mono fpreview-path" :title="preview.path">{{ preview.path }}</span>
+                    <span class="dim small">{{ fmtSize(preview.size) }}{{ preview.truncated ? ' · 已截断（512KB）' : '' }}</span>
+                    <span class="flex1" />
+                    <n-button size="tiny" quaternary @click="preview = null">关闭</n-button>
+                  </div>
+                  <div v-if="preview.loading" class="dim small" style="padding:16px">加载中…</div>
+                  <div v-else-if="preview.isMd" class="fpreview-md md-content" v-html="mdHtml(preview.text)"></div>
+                  <pre v-else class="fpreview-code">{{ preview.text }}</pre>
+                </div>
+                <div v-else class="dim small" style="padding:10px 2px">点击文件预览文本内容（512KB 截断，二进制不支持）</div>
+              </template>
             </template>
 
             <!-- 使用情况 -->
@@ -454,7 +565,7 @@ onMounted(load);
                 >
                   <div class="usage-top">
                     <span class="usage-tool">
-                      <img v-if="toolDef(t)?.logo" class="tool-logo" :src="toolDef(t)?.logo" alt="">{{ toolName(t) }}
+                      <img v-if="toolLogo(t)" class="tool-logo" :src="toolLogo(t)" alt="">{{ toolName(t) }}
                     </span>
                     <span class="usage-version dim">{{ toolState(selected, t).on ? toolState(selected, t).label : '未接入' }}</span>
                   </div>
@@ -555,57 +666,75 @@ onMounted(load);
 </template>
 
 <style scoped>
-/* 页面锁定为视口高度：main 上下 padding 共 80px，内部各自滚动、互不牵连 */
-.page { height: calc(100vh - 80px); display: flex; flex-direction: column; overflow: hidden; }
-.page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; flex-shrink: 0; }
-.head-actions { display: flex; gap: 8px; align-items: center; }
-h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+/* 对齐资产库布局：全幅三段式（工具 Tab / 状态行 / 列表+详情） */
+.page { margin: -24px -40px -56px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-.workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: stretch; flex: 1; min-height: 0; }
-@media (max-width: 1000px) { .workspace { grid-template-columns: 320px minmax(0, 1fr); } }
-.panel { background: #fff; border: 1px solid var(--border); border-radius: 14px; min-height: 0; overflow: hidden; }
+/* 第一层：AI 工具 Tab */
+.toolbar { flex: 0 0 auto; height: 48px; display: flex; gap: 12px; align-items: center; padding: 0 16px; }
+.tabs-strip { flex: 1 1 auto; min-width: 0; display: flex; gap: 8px; align-items: center; overflow-x: auto; }
+.tabs-strip::-webkit-scrollbar { height: 0; }
+.tab { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; height: 32px; background: transparent; border: none; border-radius: 8px; padding: 0 12px; cursor: pointer; color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.tab:hover { background: rgba(0, 0, 0, .05); }
+.tab.on { background: var(--accent); color: #fff; }
+.tab-logo { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; background: #fff; }
+.tab-dot { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; background: #8e8e93; }
+.tab-n { color: var(--dim); font-size: 12px; }
+.tab.on .tab-n { color: rgba(255, 255, 255, .8); }
+.search { flex: 0 0 auto; width: 240px; }
+.toolbar :deep(.n-input) { --n-height: 30px; }
+.flex1 { flex: 1; }
 
-/* 左侧清单 */
-.list-panel { display: flex; flex-direction: column; }
-.list-tools { padding: 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.status-seg { margin-top: 9px; }
-.advanced { display: flex; gap: 7px; margin-top: 8px; }
-.list-summary { display: flex; justify-content: space-between; padding: 7px 12px 5px; font-size: 11px; flex-shrink: 0; }
-.skill-list { overflow: auto; flex: 1; padding: 0 8px 8px; overscroll-behavior: contain; }
-.skill-card { padding: 11px 10px; border: 1px solid transparent; border-radius: 10px; margin-bottom: 3px; cursor: pointer; }
-.skill-card:hover { background: var(--bg); }
-.skill-card.selected { background: #f7fbff; border-color: #6daaff; }
-.skill-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.skill-name { font-size: 14px; font-weight: 700; }
-.skill-count { font-size: 11px; white-space: nowrap; }
-.skill-desc { margin-top: 4px; font-size: 11px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.meta { display: flex; gap: 5px; margin-top: 7px; align-items: center; flex-wrap: wrap; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: #9aa0a8; display: inline-block; }
-.dot.green { background: #18a566; }
+/* 第二层：状态筛选 + 动作 */
+.typerow { flex: 0 0 auto; height: 42px; display: flex; gap: 4px; align-items: center; padding: 0 16px; background: var(--card-solid); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.typerow::-webkit-scrollbar { height: 0; }
+.tchip { display: inline-flex; gap: 8px; align-items: center; height: 28px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; color: var(--dim); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.tchip:hover { background: rgba(0, 0, 0, .05); color: var(--text); }
+.tchip.on { background: rgba(0, 113, 227, .1); color: var(--accent); font-weight: 600; }
+.tchip-n { font-size: 11px; opacity: .75; }
 
-/* 右侧详情 */
-.detail { display: flex; flex-direction: column; }
-.detail-head { padding: 17px 17px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.detail-title-row { display: flex; justify-content: space-between; gap: 15px; }
-.dt-main { min-width: 0; }
-.detail-title { font-size: 19px; font-weight: 750; }
-.detail-desc { color: var(--dim); margin-top: 5px; line-height: 1.5; }
-.pathbar { margin-top: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; height: 32px; display: flex; align-items: center; padding: 0 10px; color: #5f646b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.detail-meta { display: flex; gap: 18px; margin: 11px 0 12px; flex-wrap: wrap; }
+/* 主体 */
+.body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 16px 16px; overflow: hidden; }
+
+/* 左：技能清单 */
+.list { flex: 1 1 38%; min-width: 300px; display: flex; flex-direction: column; overflow: hidden; }
+.list-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.lh-title { font-size: 13.5px; font-weight: 700; }
+.lh-n { font-size: 12px; color: var(--dim); }
+.sortsel { width: 128px; }
+.list-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; overscroll-behavior: contain; }
+.srow { display: flex; gap: 12px; align-items: center; padding: 11px 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; }
+.srow:hover { background: var(--bg); }
+.srow.sel { background: rgba(0, 113, 227, .08); border-color: var(--accent); }
+.srow-logo { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; background: #fff; flex-shrink: 0; }
+.srow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.srow-name { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.srow-name-t { font-size: 13.5px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srow-desc { font-size: 11.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.srow-tools { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
+.srow-tool-logo { width: 15px; height: 15px; border-radius: 3px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
+
+/* 右：详情 Inspector */
+.detail { flex: 1 1 62%; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }
+.insp-head { flex: 0 0 auto; display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 8px; }
+.insp-logo { width: 22px; height: 22px; border-radius: 5px; object-fit: contain; background: #fff; border: 1px solid var(--border); flex-shrink: 0; margin-top: 1px; }
+.insp-id { flex: 1; min-width: 0; }
+.insp-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
+.insp-desc { font-size: 12px; margin-top: 2px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.insp-act { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.detail-sub { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 0 16px 10px; border-bottom: 1px solid var(--border); }
+.pathbar { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; height: 30px; display: flex; align-items: center; padding: 0 10px; color: #5f646b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-meta { display: flex; gap: 16px; flex-wrap: wrap; }
 .detail-meta strong { color: #3e4248; font-weight: 600; }
-.detail-tabs { flex-shrink: 0; }
-.detail-body { min-height: 0; flex: 1; overflow: auto; padding: 16px 17px; overscroll-behavior: contain; }
+.insp-tabs { flex: 0 0 auto; display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.itab { height: 28px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; color: var(--dim); font-size: 13px; cursor: pointer; }
+.itab:hover { background: rgba(0, 0, 0, .05); color: var(--text); }
+.itab.on { background: rgba(0, 113, 227, .1); color: var(--accent); font-weight: 600; }
+.detail-body { min-height: 0; flex: 1; overflow: auto; padding: 14px 16px 16px; overscroll-behavior: contain; }
 
 /* 概览 */
 .section-title { font-size: 13px; font-weight: 700; margin: 16px 0 10px; }
 .section-title:first-child { margin-top: 0; }
 .section-sub { margin: -6px 0 12px; }
-.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-@media (max-width: 1280px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.info-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 13px; }
-.info-label { font-size: 10px; color: var(--dim); margin-bottom: 6px; }
-.info-value { font-size: 12.5px; font-weight: 600; word-break: break-all; }
-.status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 8px; background: #eaf8f1; color: #138052; font-size: 11px; font-weight: 600; }
 .tool-boxes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 1280px) { .tool-boxes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .tool-box { border: 1px solid var(--border); border-radius: 10px; padding: 11px; }
@@ -633,13 +762,21 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .md-content :deep(code) { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 12px; }
 
 /* 文件 */
-.tree { border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
-.tree-row { min-height: 38px; display: flex; align-items: center; padding: 6px 12px; gap: 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
-.tree-row:last-child { border-bottom: 0; }
-.tree-row:hover { background: var(--bg); }
-.tree-icon { color: #7b8188; }
-.tree-size { font-size: 10px; margin-left: auto; }
-.indent1 { padding-left: 34px; }
+.files-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.filetree { border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
+.frow { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 5px 12px; border: none; border-bottom: 1px solid var(--border); background: transparent; font-size: 12px; cursor: pointer; text-align: left; }
+.frow:last-child { border-bottom: 0; }
+.frow:hover { background: var(--bg); }
+.frow.sel { background: rgba(0, 113, 227, .08); }
+.frow-icon { color: #7b8188; flex-shrink: 0; }
+.frow-name { flex-shrink: 0; }
+.frow-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow-size { font-size: 10px; margin-left: auto; flex-shrink: 0; }
+.fpreview { margin-top: 12px; border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
+.fpreview-bar { min-height: 34px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; padding: 4px 10px; font-size: 11px; }
+.fpreview-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpreview-code { margin: 0; padding: 12px 14px; max-height: 420px; overflow: auto; font: 12px/1.55 "SF Mono", ui-monospace, Consolas, monospace; white-space: pre; background: var(--code-bg); }
+.fpreview-md { max-height: 420px; overflow: auto; padding: 16px 20px; font-size: 13px; }
 
 /* 使用情况 */
 .usage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -665,4 +802,10 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .install-result { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; }
 .install-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; flex-wrap: wrap; }
 .install-err { color: #c25656; font-size: 11px; }
+
+@media (max-width: 1024px) {
+  .body { flex-direction: column; overflow-y: auto; }
+  .list { max-height: 46vh; }
+  .search { width: 160px; }
+}
 </style>
