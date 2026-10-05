@@ -50,14 +50,19 @@ function safeEntryName(name: string): boolean {
 }
 
 export interface ParsedSource {
-  kind: 'github' | 'zip';
+  kind: 'github' | 'zip' | 'skillhub';
   /** 实际下载的 zip 地址（GitHub 按顺序尝试，codeload 失败回退 api zipball） */
   zipUrls: string[];
   /** 展示用的原始来源 */
   display: string;
+  /** SkillHub 技能 slug（kind=skillhub 时用于目录命名） */
+  slug?: string;
 }
 
-/** 识别技能来源：GitHub 仓库/子目录链接 → codeload/api zipball 双通道；其余按 zip 直链 */
+/** SkillHub（skillhub.cn）下载入口：302 到腾讯云 COS，国内直连稳定 */
+const SKILLHUB_API = 'https://api.skillhub.cn';
+
+/** 识别技能来源：GitHub 仓库/子目录链接 → codeload/api zipball 双通道；SkillHub 技能页链接 → 官方下载接口；其余按 zip 直链 */
 export function parseSkillSource(input: string): ParsedSource {
   const raw = input.trim();
   if (!raw) throw new Error('请输入来源 URL');
@@ -80,6 +85,14 @@ export function parseSkillSource(input: string): ParsedSource {
       zipUrls: [`https://codeload.github.com/${repo}/zip/HEAD`, `https://api.github.com/repos/${repo}/zipball`],
       display: repo,
     };
+  }
+  // SkillHub 技能页：skillhub.cn/skills/<slug>
+  if (u.hostname === 'skillhub.cn' || u.hostname === 'www.skillhub.cn') {
+    const seg = u.pathname.replace(/^\/+|\/+$/g, '').split('/');
+    const i = seg.indexOf('skills');
+    const slug = i >= 0 && seg[i + 1] ? seg[i + 1] : '';
+    if (!slug) throw new Error('SkillHub 链接需形如 skillhub.cn/skills/<slug>');
+    return { kind: 'skillhub', zipUrls: [`${SKILLHUB_API}/api/v1/download?slug=${encodeURIComponent(slug)}`], display: `skillhub:${slug}`, slug };
   }
   return { kind: 'zip', zipUrls: [u.toString()], display: u.hostname };
 }
@@ -119,13 +132,14 @@ export function discoverSkillsFromZip(buf: Buffer): SkillCandidate[] {
   const byDir = new Map<string, string>(); // dir -> SKILL.md 文本
   for (const e of entries) {
     const norm = e.name.replace(/\\/g, '/');
-    if (norm.toUpperCase().endsWith('/SKILL.MD')) {
-      byDir.set(norm.slice(0, -('/SKILL.md'.length)), e.data.toString('utf8'));
+    if (/(^|\/)SKILL\.MD$/i.test(norm)) {
+      byDir.set(norm.replace(/(^|\/)SKILL\.MD$/i, ''), e.data.toString('utf8'));
     }
   }
   const out: SkillCandidate[] = [];
   for (const [dir, text] of byDir) {
-    const name = dir.split('/').filter(Boolean).pop() ?? '';
+    // zip 根目录直接放 SKILL.md（SkillHub 单技能包形态）
+    const name = dir ? dir.split('/').filter(Boolean).pop() ?? '' : 'skill';
     if (!name) continue;
     out.push({ name, path: dir, description: extractDescription(text) });
   }
@@ -147,13 +161,13 @@ function safeSkillDirName(name: string): string {
 }
 
 export function entriesForSkill(entries: ZipEntry[], skillPath: string): ZipEntry[] {
+  if (!skillPath) return entries; // 根目录技能包（无前缀目录）
   const prefix = skillPath.replace(/\/+$/, '') + '/';
   return entries.filter((e) => e.name.replace(/\\/g, '/').startsWith(prefix));
 }
 
-/** 写入技能目录（整目录落盘），返回写入文件数 */
-export function writeSkillDir(entries: ZipEntry[], skillPath: string, dest: string, overwrite: boolean): number {
-  const scoped = entriesForSkill(entries, skillPath);
+/** 把已圈定的 zip 条目写入目标目录（ rel 为条目名或去掉前缀的相对路径） */
+function writeZipEntries(scoped: ZipEntry[], dest: string, skillPath: string, overwrite: boolean): number {
   if (!scoped.length) throw new Error('所选技能在压缩包中不存在');
   if (fs.existsSync(dest)) {
     if (!overwrite) throw new Error(`目标已存在：${dest}（需要覆盖请勾选覆盖）`);
@@ -161,7 +175,8 @@ export function writeSkillDir(entries: ZipEntry[], skillPath: string, dest: stri
   }
   let count = 0;
   for (const e of scoped) {
-    const rel = e.name.replace(/\\/g, '/').slice(skillPath.length + 1);
+    const norm = e.name.replace(/\\/g, '/');
+    const rel = skillPath ? norm.slice(skillPath.length + 1) : norm;
     if (!rel) continue;
     const abs = path.resolve(dest, rel);
     if (!abs.startsWith(path.resolve(dest) + path.sep)) throw new Error('压缩包条目路径异常，已中止');
@@ -170,6 +185,11 @@ export function writeSkillDir(entries: ZipEntry[], skillPath: string, dest: stri
     count++;
   }
   return count;
+}
+
+/** 写入技能目录（整目录落盘），返回写入文件数 */
+export function writeSkillDir(entries: ZipEntry[], skillPath: string, dest: string, overwrite: boolean): number {
+  return writeZipEntries(entriesForSkill(entries, skillPath), dest, skillPath, overwrite);
 }
 
 /** 接入一个工具：junction/符号链接或整目录复制（目标 <toolRoot>/skills/<name>） */
@@ -188,6 +208,23 @@ export function linkSkillToTool(storeDir: string, name: string, toolRoot: string
   }
 }
 
+/** 按目标接入工具并汇总结果（共享库本体目录 → 各工具 junction/复制） */
+function linkAllTargets(
+  dest: string, name: string,
+  targets: LinkTarget[], toolRootOf: (tool: string) => string, overwrite: boolean,
+): InstallResult['linked'] {
+  const linked: InstallResult['linked'] = [];
+  for (const t of targets) {
+    try {
+      linkSkillToTool(dest, name, toolRootOf(t.tool), t.mode, overwrite);
+      linked.push({ tool: t.tool, mode: t.mode, ok: true });
+    } catch (err) {
+      linked.push({ tool: t.tool, mode: t.mode, ok: false, error: (err as Error).message });
+    }
+  }
+  return linked;
+}
+
 /** 完整安装流程：解包 → 写共享库 → 按目标接入工具。注入 toolRootResolver 便于测试。 */
 export function installSkillsFromZip(
   buf: Buffer,
@@ -198,25 +235,65 @@ export function installSkillsFromZip(
   const results: InstallResult[] = [];
   for (const skillPath of selectedPaths) {
     const candDir = entriesForSkill(entries, skillPath).find((e) => e.name.toUpperCase().endsWith('SKILL.MD'));
-    if (!candDir) { results.push({ name: skillPath, installed: false, linked: [], error: '压缩包中未找到该技能' }); continue; }
-    const name = safeSkillDirName(skillPath.split('/').filter(Boolean).pop() ?? '');
+    if (!candDir) { results.push({ name: skillPath || '(根目录)', installed: false, linked: [], error: '压缩包中未找到该技能' }); continue; }
+    const name = safeSkillDirName(skillPath ? skillPath.split('/').filter(Boolean).pop() ?? '' : 'skill');
     const res: InstallResult = { name, installed: false, linked: [] };
     try {
       const dest = path.join(opts.storeSkillsDir, name);
       writeSkillDir(entries, skillPath, dest, opts.overwrite);
       res.installed = true;
-      for (const t of opts.targets) {
-        try {
-          linkSkillToTool(dest, name, opts.toolRootOf(t.tool), t.mode, opts.overwrite);
-          res.linked.push({ tool: t.tool, mode: t.mode, ok: true });
-        } catch (err) {
-          res.linked.push({ tool: t.tool, mode: t.mode, ok: false, error: (err as Error).message });
-        }
-      }
+      res.linked = linkAllTargets(dest, name, opts.targets, opts.toolRootOf, opts.overwrite);
     } catch (err) {
       res.error = (err as Error).message;
     }
     results.push(res);
   }
   return results;
+}
+
+/** SkillHub 单技能包安装：zip 是根目录技能形态，共享库目录名用 slug（buf 可传入已下载的包） */
+export async function installSkillHubZip(
+  slug: string,
+  opts: { storeSkillsDir: string; targets: LinkTarget[]; overwrite: boolean; toolRootOf: (tool: string) => string },
+  buf?: Buffer,
+): Promise<InstallResult> {
+  const zip = buf ?? await fetchZipBytes([`${SKILLHUB_API}/api/v1/download?slug=${encodeURIComponent(slug)}`]);
+  const entries = readZip(zip).filter((e) => safeEntryName(e.name));
+  const name = safeSkillDirName(slug);
+  const res: InstallResult = { name, installed: false, linked: [] };
+  try {
+    const dest = path.join(opts.storeSkillsDir, name);
+    writeZipEntries(entries, dest, '', opts.overwrite);
+    res.installed = true;
+    res.linked = linkAllTargets(dest, name, opts.targets, opts.toolRootOf, opts.overwrite);
+  } catch (err) {
+    res.error = (err as Error).message;
+  }
+  return res;
+}
+
+/** SkillHub 搜索（只读远端查询，不涉及本地写入） */
+export interface HubSkill {
+  slug: string; name: string; description: string | null;
+  downloads: number; score: number; verified: boolean; version: string;
+}
+
+export async function searchSkillHub(keyword: string, page = 1, sortBy = 'score'): Promise<{ skills: HubSkill[]; total: number }> {
+  const url = `${SKILLHUB_API}/api/skills?page=${page}&pageSize=24&sortBy=${encodeURIComponent(sortBy)}&order=desc&keyword=${encodeURIComponent(keyword)}`;
+  const resp = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!resp.ok) throw new Error(`SkillHub 搜索失败：HTTP ${resp.status}`);
+  const j = JSON.parse(await resp.text()) as {
+    code?: number; data?: { skills?: Record<string, unknown>[]; total?: number };
+  };
+  if (j.code !== 0) throw new Error('SkillHub 搜索返回异常');
+  const skills = (j.data?.skills ?? []).map((s) => ({
+    slug: String(s.slug ?? ''),
+    name: String(s.name ?? s.slug ?? ''),
+    description: (s.description_zh ?? s.description ?? '') as string | null || null,
+    downloads: Number(s.downloads ?? 0),
+    score: Number(s.score ?? 0),
+    verified: !!s.verified,
+    version: String(s.version ?? ''),
+  })).filter((s) => s.slug);
+  return { skills, total: Number(j.data?.total ?? skills.length) };
 }

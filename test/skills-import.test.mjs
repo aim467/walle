@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { createZip, readZip } from '../packages/core/dist/index.js';
 import {
-  parseSkillSource, discoverSkillsFromZip, installSkillsFromZip, extractDescription, entriesForSkill,
+  parseSkillSource, discoverSkillsFromZip, installSkillsFromZip, installSkillHubZip, extractDescription, entriesForSkill,
 } from '../packages/cli/dist/skills-import.js';
 
 const FOO_SKILL = `---
@@ -115,4 +115,38 @@ test('entriesForSkill：按目录前缀圈定条目', () => {
     { name: 'r/foobar/SKILL.md', data: Buffer.from('c') },
   ]);
   assert.equal(entriesForSkill(readZip(buf), 'r/foo').length, 2);
+});
+
+test('parseSkillSource：SkillHub 技能页链接 → 官方下载接口', () => {
+  const p = parseSkillSource('https://skillhub.cn/skills/writer-ai-assistant');
+  assert.equal(p.kind, 'skillhub');
+  assert.equal(p.slug, 'writer-ai-assistant');
+  assert.equal(p.zipUrls[0], 'https://api.skillhub.cn/api/v1/download?slug=writer-ai-assistant');
+  assert.throws(() => parseSkillSource('https://skillhub.cn/other/x'), /skills\/<slug>/);
+});
+
+test('discoverSkillsFromZip：根目录 SKILL.md（SkillHub 单技能包形态）可发现', () => {
+  const buf = createZip([{ name: 'SKILL.md', data: Buffer.from(FOO_SKILL) }]);
+  const cands = discoverSkillsFromZip(buf);
+  assert.equal(cands.length, 1);
+  assert.equal(cands[0].path, '');
+  assert.equal(cands[0].description, '多行折叠的描述 第二行');
+});
+
+test('installSkillHubZip：根目录 zip 按 slug 落盘共享库并接入工具', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-hub-'));
+  const buf = createZip([
+    { name: 'SKILL.md', data: Buffer.from(FOO_SKILL) },
+    { name: 'scripts/run.py', data: Buffer.from('print(1)') },
+  ]);
+  const r = await installSkillHubZip('writer-ai-assistant', {
+    storeSkillsDir: path.join(tmp, 'skills'),
+    targets: [{ tool: 'zcode', mode: 'link' }],
+    overwrite: false,
+    toolRootOf: () => path.join(tmp, 'zcode'),
+  }, buf);
+  assert.equal(r.installed, true, r.error);
+  assert.equal(r.name, 'writer-ai-assistant');
+  assert.equal(fs.readFileSync(path.join(tmp, 'skills', 'writer-ai-assistant', 'SKILL.md'), 'utf8'), FOO_SKILL);
+  assert.ok(fs.existsSync(path.join(tmp, 'zcode', 'skills', 'writer-ai-assistant', 'scripts', 'run.py')));
 });

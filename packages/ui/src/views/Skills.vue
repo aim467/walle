@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, h } from 'vue';
-import { NInput, NSelect, NEmpty, NButton, NDropdown, NTabs, NTab, NTag, NDataTable, NProgress, NModal, NCheckbox, NRadioGroup, NRadio, useMessage } from 'naive-ui';
+import { NInput, NSelect, NEmpty, NButton, NDropdown, NTabs, NTab, NTag, NDataTable, NProgress, NModal, NCheckbox, NCheckboxGroup, NRadioGroup, NRadio, NRadioButton, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -208,6 +208,7 @@ interface ImportTarget { tool: string; mode: 'link' | 'copy' }
 interface InstallResultItem { name: string; installed: boolean; error?: string; linked: { tool: string; mode: string; ok: boolean; error?: string }[] }
 
 const showImport = ref(false);
+const importMode = ref<'url' | 'hub'>('url');
 const importUrl = ref('');
 const discovering = ref(false);
 const candidates = ref<ImportCandidate[]>([]);
@@ -216,6 +217,19 @@ const installOverwrite = ref(false);
 const installing = ref(false);
 const installResult = ref<InstallResultItem[] | null>(null);
 const importSource = ref('');
+
+/** SkillHub 搜索模式 */
+interface HubSkillItem { slug: string; name: string; description: string | null; downloads: number; verified: boolean; version: string }
+const hubKeyword = ref('');
+const hubSort = ref('score');
+const hubSearching = ref(false);
+const hubResults = ref<HubSkillItem[]>([]);
+const hubPicked = ref<string[]>([]);
+const hubTotal = ref(0);
+const hubSortOptions = [
+  { label: '按评分', value: 'score' },
+  { label: '按下载量', value: 'downloads' },
+];
 
 /** 接入工具矩阵：Codex 默认不勾（对共享库技能是原生发现），其余默认勾选 + 链接 */
 const TARGET_DEFS = [
@@ -231,11 +245,30 @@ const targetState = ref<Record<string, { on: boolean; mode: 'link' | 'copy' }>>(
 
 function openImport() {
   showImport.value = true;
+  importMode.value = 'url';
   importUrl.value = '';
   candidates.value = [];
   picked.value = [];
   installResult.value = null;
   importSource.value = '';
+  hubKeyword.value = '';
+  hubResults.value = [];
+  hubPicked.value = [];
+  hubTotal.value = 0;
+}
+async function searchHub() {
+  if (!hubKeyword.value.trim()) { message.warning('请输入搜索关键词'); return; }
+  hubSearching.value = true;
+  installResult.value = null;
+  try {
+    const d = await (await fetch(`/api/skills/hub/search?keyword=${encodeURIComponent(hubKeyword.value)}&page=1&sortBy=${hubSort.value}`)).json();
+    if (d.error) { message.error(d.error); return; }
+    hubResults.value = d.skills ?? [];
+    hubTotal.value = d.total ?? 0;
+    hubPicked.value = [];
+  } finally {
+    hubSearching.value = false;
+  }
 }
 async function discoverSkills() {
   if (!importUrl.value.trim()) { message.warning('请输入来源 URL'); return; }
@@ -256,15 +289,20 @@ async function discoverSkills() {
   }
 }
 async function installSkills() {
-  if (!picked.value.length) { message.warning('请勾选要安装的技能'); return; }
+  const isHub = importMode.value === 'hub';
+  if (isHub && !hubPicked.value.length) { message.warning('请勾选要安装的技能'); return; }
+  if (!isHub && !picked.value.length) { message.warning('请勾选要安装的技能'); return; }
   installing.value = true;
   try {
     const targets: ImportTarget[] = TARGET_DEFS
       .filter((t) => targetState.value[t.tool]?.on)
       .map((t) => ({ tool: t.tool, mode: targetState.value[t.tool].mode }));
+    const payload = isHub
+      ? { source: 'skillhub', skills: hubPicked.value, targets, overwrite: installOverwrite.value }
+      : { url: importUrl.value, skills: picked.value, targets, overwrite: installOverwrite.value };
     const d = await (await fetch('/api/skills/import', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: importUrl.value, skills: picked.value, targets, overwrite: installOverwrite.value }),
+      body: JSON.stringify(payload),
     })).json();
     if (d.error) { message.error(d.error); return; }
     installResult.value = d.results ?? [];
@@ -592,26 +630,51 @@ onMounted(load);
     <n-modal v-model:show="showImport" preset="card" title="导入技能（从互联网下载）" style="width: 660px; max-width: 92vw">
       <div class="import-step">
         <div class="step-title">1 · 来源</div>
-        <div class="import-url-row">
+        <div class="mode-row">
+          <n-radio-group v-model:value="importMode" size="small" :disabled="installing">
+            <n-radio-button value="url">链接（GitHub / zip / SkillHub 页面）</n-radio-button>
+            <n-radio-button value="hub">SkillHub 搜索</n-radio-button>
+          </n-radio-group>
+        </div>
+        <div v-if="importMode === 'url'" class="import-url-row">
           <n-input
-            v-model:value="importUrl" placeholder="GitHub 仓库（owner/repo 或链接，可带 /tree/ 子目录）或任意 zip 直链"
+            v-model:value="importUrl" placeholder="GitHub 仓库（owner/repo 或链接，可带 /tree/ 子目录）、skillhub.cn/skills/<slug> 或任意 zip 直链"
             size="small" :disabled="discovering || installing" @keydown.enter="discoverSkills"
           />
           <n-button size="small" type="primary" :loading="discovering" :disabled="installing" @click="discoverSkills">发现技能</n-button>
         </div>
+        <div v-else class="import-url-row">
+          <n-input
+            v-model:value="hubKeyword" placeholder="搜索 SkillHub 技能（关键词）"
+            size="small" :disabled="hubSearching || installing" @keydown.enter="searchHub"
+          />
+          <n-select v-model:value="hubSort" :options="hubSortOptions" size="small" class="hub-sort" :disabled="installing" />
+          <n-button size="small" type="primary" :loading="hubSearching" :disabled="installing" @click="searchHub">搜索</n-button>
+        </div>
       </div>
 
-      <template v-if="candidates.length">
+      <template v-if="importMode === 'url' ? candidates.length > 0 : hubResults.length > 0">
         <div class="import-step">
           <div class="step-title">
             2 · 选择技能
-            <span class="dim small" style="font-weight: 400">{{ importSource }} · 发现 {{ candidates.length }} 个</span>
+            <span v-if="importMode === 'url'" class="dim small" style="font-weight: 400">{{ importSource }} · 发现 {{ candidates.length }} 个</span>
+            <span v-else class="dim small" style="font-weight: 400">skillhub.cn · 匹配 {{ hubTotal }} 个（显示前 {{ hubResults.length }}）</span>
           </div>
           <div class="cand-list">
-            <n-checkbox-group v-model:value="picked">
+            <n-checkbox-group v-if="importMode === 'url'" v-model:value="picked">
               <div v-for="c in candidates" :key="c.path" class="cand-row">
                 <n-checkbox :value="c.path" :label="c.name" />
                 <span class="cand-desc dim">{{ c.description ?? '（无描述）' }}</span>
+              </div>
+            </n-checkbox-group>
+            <n-checkbox-group v-else v-model:value="hubPicked">
+              <div v-for="c in hubResults" :key="c.slug" class="cand-row">
+                <n-checkbox :value="c.slug">
+                  <span class="hub-name">{{ c.name }}</span>
+                  <n-tag v-if="c.verified" size="tiny" type="success" :bordered="false">认证</n-tag>
+                  <span class="dim small">v{{ c.version }} · {{ c.downloads }} 下载</span>
+                </n-checkbox>
+                <span class="cand-desc dim">{{ c.description ?? '' }}</span>
               </div>
             </n-checkbox-group>
           </div>
@@ -625,13 +688,11 @@ onMounted(load);
           <div v-for="t in TARGET_DEFS" :key="t.tool" class="target-row">
             <n-checkbox v-model:checked="targetState[t.tool].on" />
             <span>{{ t.label }}</span>
-            <n-radio-group
+            <n-select
               v-model:value="targetState[t.tool].mode" size="tiny"
-              :disabled="!targetState[t.tool].on || installing"
-            >
-              <n-radio value="link">符号链接</n-radio>
-              <n-radio value="copy">目录复制</n-radio>
-            </n-radio-group>
+              :disabled="!targetState[t.tool].on || installing" class="mode-sel"
+              :options="[{ label: '符号链接', value: 'link' }, { label: '目录复制', value: 'copy' }]"
+            />
             <span class="dim small">{{ t.hint }}</span>
           </div>
           <div class="overwrite-row">
@@ -641,7 +702,7 @@ onMounted(load);
 
         <div class="import-actions">
           <n-button type="primary" size="small" :loading="installing" @click="installSkills">
-            安装 {{ picked.length }} 个技能到共享库
+            安装 {{ importMode === 'hub' ? hubPicked.length : picked.length }} 个技能到共享库
           </n-button>
         </div>
 
@@ -790,12 +851,16 @@ onMounted(load);
 
 /* 导入技能向导 */
 .import-step { margin-bottom: 16px; }
+.mode-row { margin-bottom: 8px; }
+.hub-sort { width: 110px; flex-shrink: 0; }
+.hub-name { font-weight: 600; margin-right: 6px; }
 .step-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
 .import-url-row { display: flex; gap: 8px; }
 .cand-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; max-height: 220px; overflow: auto; }
 .cand-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
 .cand-desc { font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.target-row { display: grid; grid-template-columns: 40px 110px 190px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; }
+.target-row { display: grid; grid-template-columns: 40px 110px 150px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; }
+.mode-sel { width: 120px; }
 .target-row.head { font-size: 11px; color: var(--dim); border-bottom: 1px solid var(--border); }
 .overwrite-row { margin-top: 8px; }
 .import-actions { display: flex; justify-content: flex-end; margin-top: 4px; }

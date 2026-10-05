@@ -8,8 +8,8 @@ import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets, c
 import type { ZipEntry } from '@walle/core';
 import { adapters, resolveToolRoot, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
-import { parseSkillSource, fetchZipBytes, discoverSkillsFromZip, installSkillsFromZip, extractDescription } from '../skills-import.js';
-import type { LinkTarget } from '../skills-import.js';
+import { parseSkillSource, fetchZipBytes, discoverSkillsFromZip, installSkillsFromZip, installSkillHubZip, searchSkillHub, extractDescription } from '../skills-import.js';
+import type { LinkTarget, InstallResult } from '../skills-import.js';
 
 /** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
  *  页面为独立静态文件 packages/cli/ui/（不内嵌），改页面刷新即生效、无需重新构建。 */
@@ -512,6 +512,15 @@ export async function cmdServe(rest: string[]): Promise<void> {
         });
         return;
       }
+      // SkillHub 搜索代理：GET /api/skills/hub/search?keyword=&page=&sortBy= —— 只读远端查询
+      if (url.pathname === '/api/skills/hub/search') {
+        const keyword = url.searchParams.get('keyword') ?? '';
+        if (!keyword.trim()) { json(res, { skills: [], total: 0 }); return; }
+        searchSkillHub(keyword, Number(url.searchParams.get('page')) || 1, url.searchParams.get('sortBy') || 'score')
+          .then((r) => json(res, { ok: true, ...r }))
+          .catch((err) => json(res, { error: (err as Error).message }));
+        return;
+      }
       // 技能导入·发现：POST /api/skills/import/discover body { url } —— 下载 zip 并列出候选技能（不写盘）
       if (url.pathname === '/api/skills/import/discover' && req.method === 'POST') {
         if (!readWalleConfig().allowWrite) { json(res, { error: '写回开关未开启（walle write-enable）' }); return; }
@@ -547,25 +556,45 @@ export async function cmdServe(rest: string[]): Promise<void> {
         req.on('end', () => {
           void (async () => {
             try {
-              const { url: src, skills, targets, overwrite } = JSON.parse(body) as {
-                url?: string; skills?: string[]; targets?: LinkTarget[]; overwrite?: boolean;
+              const { source: sourceKind, url: src, skills: selected, targets, overwrite } = JSON.parse(body) as {
+                source?: string; url?: string; skills?: string[]; targets?: LinkTarget[]; overwrite?: boolean;
               };
-              if (!Array.isArray(skills) || !skills.length) { json(res, { error: '未选择要安装的技能' }); return; }
-              const parsed = parseSkillSource(String(src ?? ''));
-              const buf = await fetchZipBytes(parsed.zipUrls);
+              if (!Array.isArray(selected) || !selected.length) { json(res, { error: '未选择要安装的技能' }); return; }
               const agentsRoot = resolveToolRoot('agents');
               const knownTools = new Set(TOOL_ROOT_DEFS.map((d) => d.tool));
-              const result = installSkillsFromZip(buf, skills, {
+              const cleanTargets = (targets ?? []).filter((t) => knownTools.has(t.tool) && (t.mode === 'link' || t.mode === 'copy'));
+              const installOpts = {
                 storeSkillsDir: path.join(agentsRoot, 'skills'),
-                targets: (targets ?? []).filter((t) => knownTools.has(t.tool) && (t.mode === 'link' || t.mode === 'copy')),
+                targets: cleanTargets,
                 overwrite: !!overwrite,
-                toolRootOf: (tool) => resolveToolRoot(tool),
-              });
+                toolRootOf: (tool: string) => resolveToolRoot(tool),
+              };
+              let results: InstallResult[];
+              let display: string;
+              if (sourceKind === 'skillhub') {
+                // SkillHub 模式：skills 为 slug 列表，逐个从官方下载接口取包安装
+                const slugs = selected.map((s) => String(s));
+                const invalid = slugs.find((s) => !/^[\w.-]+$/.test(s));
+                if (invalid) { json(res, { error: `非法的 SkillHub slug: ${invalid}` }); return; }
+                results = [];
+                for (const slug of slugs) {
+                  results.push(await installSkillHubZip(slug, installOpts).catch((err) => ({ name: slug, installed: false, linked: [], error: (err as Error).message })));
+                }
+                display = 'skillhub';
+              } else {
+                const parsed = parseSkillSource(String(src ?? ''));
+                const buf = await fetchZipBytes(parsed.zipUrls);
+                // SkillHub 技能页链接（kind=skillhub）：zip 为根目录技能，目录名取 slug
+                results = parsed.kind === 'skillhub' && parsed.slug
+                  ? [await installSkillHubZip(parsed.slug, installOpts, buf)]
+                  : installSkillsFromZip(buf, selected, installOpts);
+                display = parsed.display;
+              }
               // 安装涉及的源重扫（共享库 + 被接入的工具），让 UI 立即看到新技能
               const scanSources = [...new Set(['agents', ...(targets ?? []).map((t) => t.tool)])];
               let scanError: string | null = null;
               try { await runScan(adapters, store, cas, { sources: scanSources }); } catch (err) { scanError = (err as Error).message; }
-              json(res, { ok: true, source: parsed.display, results: result, scanError });
+              json(res, { ok: true, source: display, results, scanError });
             } catch (err) {
               json(res, { error: (err as Error).message });
             }
