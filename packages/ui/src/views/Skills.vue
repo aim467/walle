@@ -345,6 +345,9 @@ async function loadFiles() {
     const d = await (await fetch(`/api/skills/files?asset=${entry.assetId}`)).json();
     if (d.error) { filesError.value = d.error; files.value = []; return; }
     files.value = d.files ?? [];
+    // 默认打开 SKILL.md（无则第一个文件），右侧预览不留空
+    const first = files.value.find((f) => f.path.toUpperCase() === 'SKILL.MD') ?? files.value[0];
+    if (first) openPreview(first);
   } finally {
     filesLoading.value = false;
   }
@@ -375,11 +378,26 @@ async function openLocal() {
     openingLocal.value = false;
   }
 }
-/** 文件树展示：扁平列表 + 按目录深度缩进；目录行前缀区分 */
-const fileRows = computed(() => files.value.map((f) => {
-  const segs = f.path.split('/');
-  return { ...f, depth: segs.length - 1, label: segs[segs.length - 1], dir: segs.length > 1 ? segs.slice(0, -1).join('/') : '' };
-}));
+/** 文件树展示：按目录分组（根目录组在最前），目录行为组头；目录组与整个树面板均可折叠 */
+const collapsedDirs = ref<Set<string>>(new Set());
+const treeCollapsed = ref(false);
+function toggleDir(dir: string) {
+  const next = new Set(collapsedDirs.value);
+  if (next.has(dir)) next.delete(dir); else next.add(dir);
+  collapsedDirs.value = next;
+}
+const fileGroups = computed(() => {
+  const m = new Map<string, SkillFile[]>();
+  for (const f of files.value) {
+    const i = f.path.lastIndexOf('/');
+    const dir = i >= 0 ? f.path.slice(0, i) : '';
+    if (!m.has(dir)) m.set(dir, []);
+    m.get(dir)!.push(f);
+  }
+  return [...m.entries()]
+    .map(([dir, fs]) => ({ dir, files: fs }))
+    .sort((a, b) => (a.dir === '' ? -1 : b.dir === '' ? 1 : a.dir.localeCompare(b.dir)));
+});
 
 function fmtSize(n: number): string {
   if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
@@ -553,43 +571,59 @@ onMounted(load);
             <!-- 文件 -->
             <template v-else-if="activeTab === 'files'">
               <div class="files-head">
-                <div>
-                  <div class="section-title">技能文件</div>
-                  <div class="section-sub dim small">
-                    技能目录全部文件（含附属脚本/参考文档）；walle 入库仅收 SKILL.md（降噪）
-                  </div>
-                </div>
+                <div class="section-title" style="margin: 0">技能文件 <span class="dim small" style="font-weight: 400">{{ files.length }} 个</span></div>
                 <n-button size="tiny" round secondary :loading="openingLocal" @click="openLocal">⌖ 在本地打开</n-button>
               </div>
+              <div class="section-sub dim small">技能目录全部文件（含附属脚本/参考文档）；walle 入库仅收 SKILL.md（降噪）</div>
               <div v-if="filesLoading" class="dim small" style="padding:16px 0">加载中…</div>
               <div v-else-if="filesError" class="dim small" style="padding:16px 0">{{ filesError }}</div>
-              <template v-else>
-                <div class="filetree">
-                  <button
-                    v-for="f in fileRows" :key="f.path"
-                    class="frow" :class="{ sel: preview?.path === f.path }"
-                    :style="{ paddingLeft: 12 + f.depth * 18 + 'px' }"
-                    @click="openPreview(f)"
-                  >
-                    <span class="frow-icon">{{ f.dir ? '└' : '◇' }}</span>
-                    <span class="frow-name mono" :title="f.path">{{ f.label }}</span>
-                    <span class="frow-dir dim small" v-if="f.dir">{{ f.dir }}/</span>
-                    <span class="frow-size dim">{{ fmtSize(f.size) }}</span>
-                  </button>
-                </div>
-                <div v-if="preview" class="fpreview">
-                  <div class="fpreview-bar">
-                    <span class="mono fpreview-path" :title="preview.path">{{ preview.path }}</span>
-                    <span class="dim small">{{ fmtSize(preview.size) }}{{ preview.truncated ? ' · 已截断（512KB）' : '' }}</span>
-                    <span class="flex1" />
-                    <n-button size="tiny" quaternary @click="preview = null">关闭</n-button>
+              <div v-else-if="!files.length" class="dim small" style="padding:16px 0">目录为空</div>
+              <div v-else class="files-wrap">
+                <div v-if="!treeCollapsed" class="filetree">
+                  <div class="filetree-head">
+                    <span class="dim small">文件树</span>
+                    <n-button size="tiny" quaternary title="收起文件树，预览占满全宽" @click="treeCollapsed = true">«</n-button>
                   </div>
-                  <div v-if="preview.loading" class="dim small" style="padding:16px">加载中…</div>
-                  <div v-else-if="preview.isMd" class="fpreview-md md-content" v-html="mdHtml(preview.text)"></div>
-                  <pre v-else class="fpreview-code">{{ preview.text }}</pre>
+                  <template v-for="g in fileGroups" :key="g.dir">
+                    <button
+                      v-if="g.dir" class="fdir" :class="{ folded: collapsedDirs.has(g.dir) }"
+                      @click="toggleDir(g.dir)"
+                    >
+                      <span class="fdir-icon">{{ collapsedDirs.has(g.dir) ? '▸' : '▾' }}</span>
+                      <span class="mono">{{ g.dir }}/</span>
+                      <span class="fdir-n dim">{{ g.files.length }}</span>
+                    </button>
+                    <button
+                      v-for="f in (collapsedDirs.has(g.dir) ? [] : g.files)" :key="f.path"
+                      class="frow" :class="{ sel: preview?.path === f.path }"
+                      :style="{ paddingLeft: (g.dir ? 26 : 12) + 'px' }"
+                      @click="openPreview(f)"
+                    >
+                      <span class="frow-icon">{{ f.path.toUpperCase().endsWith('.MD') ? 'M↓' : '◇' }}</span>
+                      <span class="frow-name mono" :title="f.path">{{ f.path.split('/').pop() }}</span>
+                      <span class="frow-size dim">{{ fmtSize(f.size) }}</span>
+                    </button>
+                  </template>
                 </div>
-                <div v-else class="dim small" style="padding:10px 2px">点击文件预览文本内容（512KB 截断，二进制不支持）</div>
-              </template>
+                <div class="fpane">
+                  <template v-if="preview">
+                    <div class="fpreview-bar">
+                      <n-button
+                        v-if="treeCollapsed" size="tiny" quaternary class="tree-toggle"
+                        title="展开文件树" @click="treeCollapsed = false"
+                      >»</n-button>
+                      <span class="mono fpreview-path" :title="preview.path">{{ preview.path }}</span>
+                      <span class="dim small">{{ fmtSize(preview.size) }}{{ preview.truncated ? ' · 已截断（512KB）' : '' }}</span>
+                      <span class="flex1" />
+                      <n-button size="tiny" quaternary @click="preview = null">关闭</n-button>
+                    </div>
+                    <div v-if="preview.loading" class="dim small" style="padding:16px">加载中…</div>
+                    <div v-else-if="preview.isMd" class="fpreview-md md-content" v-html="mdHtml(preview.text)"></div>
+                    <pre v-else class="fpreview-code">{{ preview.text }}</pre>
+                  </template>
+                  <n-empty v-else description="选择左侧文件预览" size="small" style="margin:auto" />
+                </div>
+              </div>
             </template>
 
             <!-- 使用情况 -->
@@ -823,21 +857,27 @@ onMounted(load);
 .md-content :deep(code) { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 12px; }
 
 /* 文件 */
-.files-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.filetree { border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
-.frow { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 5px 12px; border: none; border-bottom: 1px solid var(--border); background: transparent; font-size: 12px; cursor: pointer; text-align: left; }
+.files-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 2px; }
+.files-wrap { display: flex; gap: 12px; height: calc(100vh - 420px); min-height: 380px; }
+.filetree { flex: 0 0 240px; border: 1px solid var(--border); border-radius: 11px; overflow: auto; align-self: stretch; }
+.filetree-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #fff; z-index: 1; }
+.fdir { width: 100%; display: flex; align-items: center; gap: 6px; padding: 7px 12px 5px; font-size: 11px; color: var(--dim); background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 29px; cursor: pointer; border-top: 0; border-left: 0; border-right: 0; text-align: left; }
+.fdir:hover { color: var(--text); }
+.fdir.folded { position: static; }
+.fdir-n { margin-left: auto; font-size: 10px; }
+.fdir-icon { font-size: 9px; }
+.frow { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: none; border-bottom: 1px solid var(--border); background: transparent; font-size: 12px; cursor: pointer; text-align: left; }
 .frow:last-child { border-bottom: 0; }
 .frow:hover { background: var(--bg); }
-.frow.sel { background: rgba(0, 113, 227, .08); }
-.frow-icon { color: #7b8188; flex-shrink: 0; }
-.frow-name { flex-shrink: 0; }
-.frow-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.frow-size { font-size: 10px; margin-left: auto; flex-shrink: 0; }
-.fpreview { margin-top: 12px; border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
-.fpreview-bar { min-height: 34px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; padding: 4px 10px; font-size: 11px; }
+.frow.sel { background: rgba(0, 113, 227, .1); box-shadow: inset 2px 0 0 var(--accent); }
+.frow-icon { color: #7b8188; flex-shrink: 0; font-size: 10px; }
+.frow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow-size { font-size: 10px; flex-shrink: 0; }
+.fpane { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 11px; overflow: hidden; display: flex; flex-direction: column; }
+.fpreview-bar { min-height: 36px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; padding: 4px 12px; font-size: 11px; flex-shrink: 0; }
 .fpreview-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fpreview-code { margin: 0; padding: 12px 14px; max-height: 420px; overflow: auto; font: 12px/1.55 "SF Mono", ui-monospace, Consolas, monospace; white-space: pre; background: var(--code-bg); }
-.fpreview-md { max-height: 420px; overflow: auto; padding: 16px 20px; font-size: 13px; }
+.fpreview-code { flex: 1; margin: 0; padding: 12px 14px; overflow: auto; font: 12px/1.55 "SF Mono", ui-monospace, Consolas, monospace; white-space: pre; background: var(--code-bg); }
+.fpreview-md { flex: 1; overflow: auto; padding: 16px 20px; font-size: 13px; }
 
 /* 使用情况 */
 .usage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
