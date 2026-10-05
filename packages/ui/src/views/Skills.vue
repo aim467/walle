@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, h } from 'vue';
-import { NInput, NSelect, NEmpty, NButton, NDropdown, NTabs, NTab, NTag, NDataTable, NProgress, useMessage } from 'naive-ui';
+import { NInput, NSelect, NEmpty, NButton, NDropdown, NTabs, NTab, NTag, NDataTable, NProgress, NModal, NCheckbox, NRadioGroup, NRadio, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -116,15 +116,101 @@ const sortOptions = [
 
 const moreOptions = [
   { label: '复制 Skill 标识', key: 'copy-id' },
+  { label: '下载技能（zip）', key: 'download' },
   { label: '重新扫描共享库', key: 'rescan' },
   { type: 'divider', key: 'd1' },
   { label: '同步到工具（即将推出）', key: 'sync', disabled: true },
-  { label: '导出技能（即将推出）', key: 'export', disabled: true },
   { label: '删除技能（即将推出）', key: 'delete', disabled: true },
 ];
 function onMore(key: string) {
   if (key === 'copy-id' && selected.value) copyText(selected.value.name);
   else if (key === 'rescan') rescan();
+  else if (key === 'download' && selected.value) downloadSkill(selected.value);
+}
+
+/** 下载技能：优先共享库本体条目，打包其磁盘目录（后端回退 CAS 的 SKILL.md） */
+function downloadSkill(g: SkillGroup) {
+  const entry = g.entries.find((e) => e.tool === 'agents') ?? g.entries[0];
+  if (!entry) return;
+  window.location.href = `/api/skills/download?asset=${entry.assetId}`;
+}
+
+/** 导入技能向导：URL 发现候选 → 勾选 → 配置接入工具（链接/复制）→ 安装 */
+interface ImportCandidate { name: string; path: string; description: string | null }
+interface ImportTarget { tool: string; mode: 'link' | 'copy' }
+interface InstallResultItem { name: string; installed: boolean; error?: string; linked: { tool: string; mode: string; ok: boolean; error?: string }[] }
+
+const showImport = ref(false);
+const importUrl = ref('');
+const discovering = ref(false);
+const candidates = ref<ImportCandidate[]>([]);
+const picked = ref<string[]>([]);
+const installOverwrite = ref(false);
+const installing = ref(false);
+const installResult = ref<InstallResultItem[] | null>(null);
+const importSource = ref('');
+
+/** 接入工具矩阵：Codex 默认不勾（对共享库技能是原生发现），其余默认勾选 + 链接 */
+const TARGET_DEFS = [
+  { tool: 'codex', label: 'Codex CLI', hint: '原生发现 ~/.agents/skills，无需接入' },
+  { tool: 'zcode', label: 'ZCode', hint: '~/.zcode/skills' },
+  { tool: 'cursor', label: 'Cursor', hint: '~/.cursor/skills' },
+  { tool: 'opencode', label: 'OpenCode', hint: '~/.config/opencode/skills' },
+  { tool: 'workbuddy', label: 'WorkBuddy', hint: '~/.workbuddy-ai/skills' },
+];
+const targetState = ref<Record<string, { on: boolean; mode: 'link' | 'copy' }>>(
+  Object.fromEntries(TARGET_DEFS.map((t) => [t.tool, { on: t.tool !== 'codex', mode: 'link' as const }])),
+);
+
+function openImport() {
+  showImport.value = true;
+  importUrl.value = '';
+  candidates.value = [];
+  picked.value = [];
+  installResult.value = null;
+  importSource.value = '';
+}
+async function discoverSkills() {
+  if (!importUrl.value.trim()) { message.warning('请输入来源 URL'); return; }
+  discovering.value = true;
+  installResult.value = null;
+  try {
+    const d = await (await fetch('/api/skills/import/discover', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: importUrl.value }),
+    })).json();
+    if (d.error) { message.error(d.error); return; }
+    candidates.value = d.skills ?? [];
+    importSource.value = d.source ?? '';
+    picked.value = candidates.value.map((c) => c.path);
+    if (!candidates.value.length) message.info('该来源中未发现技能（无 SKILL.md）');
+  } finally {
+    discovering.value = false;
+  }
+}
+async function installSkills() {
+  if (!picked.value.length) { message.warning('请勾选要安装的技能'); return; }
+  installing.value = true;
+  try {
+    const targets: ImportTarget[] = TARGET_DEFS
+      .filter((t) => targetState.value[t.tool]?.on)
+      .map((t) => ({ tool: t.tool, mode: targetState.value[t.tool].mode }));
+    const d = await (await fetch('/api/skills/import', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: importUrl.value, skills: picked.value, targets, overwrite: installOverwrite.value }),
+    })).json();
+    if (d.error) { message.error(d.error); return; }
+    installResult.value = d.results ?? [];
+    const ok = installResult.value.filter((r) => r.installed).length;
+    if (ok) {
+      message.success(`已安装 ${ok} 个技能到共享库`);
+      await load();
+    } else {
+      message.error('安装失败，详见结果列表');
+    }
+  } finally {
+    installing.value = false;
+  }
 }
 
 async function load() {
@@ -202,7 +288,7 @@ onMounted(load);
       </div>
       <div class="head-actions">
         <n-button size="small" type="primary" @click="notYet('新建技能')">＋ 新建技能</n-button>
-        <n-button size="small" secondary @click="notYet('导入技能')">↓ 导入技能</n-button>
+        <n-button size="small" secondary @click="openImport">↓ 导入技能</n-button>
       </div>
     </div>
 
@@ -390,6 +476,81 @@ onMounted(load);
         <n-empty v-else description="从左侧选择一个技能" style="margin:auto" />
       </div>
     </div>
+
+    <!-- 导入技能向导 -->
+    <n-modal v-model:show="showImport" preset="card" title="导入技能（从互联网下载）" style="width: 660px; max-width: 92vw">
+      <div class="import-step">
+        <div class="step-title">1 · 来源</div>
+        <div class="import-url-row">
+          <n-input
+            v-model:value="importUrl" placeholder="GitHub 仓库（owner/repo 或链接，可带 /tree/ 子目录）或任意 zip 直链"
+            size="small" :disabled="discovering || installing" @keydown.enter="discoverSkills"
+          />
+          <n-button size="small" type="primary" :loading="discovering" :disabled="installing" @click="discoverSkills">发现技能</n-button>
+        </div>
+      </div>
+
+      <template v-if="candidates.length">
+        <div class="import-step">
+          <div class="step-title">
+            2 · 选择技能
+            <span class="dim small" style="font-weight: 400">{{ importSource }} · 发现 {{ candidates.length }} 个</span>
+          </div>
+          <div class="cand-list">
+            <n-checkbox-group v-model:value="picked">
+              <div v-for="c in candidates" :key="c.path" class="cand-row">
+                <n-checkbox :value="c.path" :label="c.name" />
+                <span class="cand-desc dim">{{ c.description ?? '（无描述）' }}</span>
+              </div>
+            </n-checkbox-group>
+          </div>
+        </div>
+
+        <div class="import-step">
+          <div class="step-title">3 · 接入工具</div>
+          <div class="target-row head">
+            <span>接入</span><span>工具</span><span>方式</span><span class="dim">说明</span>
+          </div>
+          <div v-for="t in TARGET_DEFS" :key="t.tool" class="target-row">
+            <n-checkbox v-model:checked="targetState[t.tool].on" />
+            <span>{{ t.label }}</span>
+            <n-radio-group
+              v-model:value="targetState[t.tool].mode" size="tiny"
+              :disabled="!targetState[t.tool].on || installing"
+            >
+              <n-radio value="link">符号链接</n-radio>
+              <n-radio value="copy">目录复制</n-radio>
+            </n-radio-group>
+            <span class="dim small">{{ t.hint }}</span>
+          </div>
+          <div class="overwrite-row">
+            <n-checkbox v-model:checked="installOverwrite">覆盖同名技能</n-checkbox>
+          </div>
+        </div>
+
+        <div class="import-actions">
+          <n-button type="primary" size="small" :loading="installing" @click="installSkills">
+            安装 {{ picked.length }} 个技能到共享库
+          </n-button>
+        </div>
+
+        <div v-if="installResult" class="install-result">
+          <div v-for="r in installResult" :key="r.name" class="install-row">
+            <strong>{{ r.name }}</strong>
+            <n-tag size="small" :type="r.installed ? 'success' : 'error'" :bordered="false">
+              {{ r.installed ? '已装入共享库' : '失败' }}
+            </n-tag>
+            <n-tag
+              v-for="l in r.linked" :key="l.tool" size="small"
+              :type="l.ok ? 'info' : 'warning'" :bordered="false"
+            >
+              {{ toolName(l.tool) }} · {{ l.mode === 'link' ? '链接' : '复制' }}{{ l.ok ? '' : '：' + (l.error ?? '失败') }}
+            </n-tag>
+            <span v-if="r.error" class="install-err">{{ r.error }}</span>
+          </div>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -489,4 +650,19 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .usage-version { font-size: 10px; }
 .usage-line { margin: 12px 0 8px; }
 .usage-foot { display: flex; justify-content: space-between; font-size: 10px; }
+
+/* 导入技能向导 */
+.import-step { margin-bottom: 16px; }
+.step-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+.import-url-row { display: flex; gap: 8px; }
+.cand-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; max-height: 220px; overflow: auto; }
+.cand-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.cand-desc { font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.target-row { display: grid; grid-template-columns: 40px 110px 190px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; }
+.target-row.head { font-size: 11px; color: var(--dim); border-bottom: 1px solid var(--border); }
+.overwrite-row { margin-top: 8px; }
+.import-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.install-result { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.install-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; flex-wrap: wrap; }
+.install-err { color: #c25656; font-size: 11px; }
 </style>

@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets } from '@walle/core';
+import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets, createZip } from '@walle/core';
+import type { ZipEntry } from '@walle/core';
 import { adapters, resolveToolRoot, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
+import { parseSkillSource, fetchZipBytes, discoverSkillsFromZip, installSkillsFromZip, extractDescription } from '../skills-import.js';
+import type { LinkTarget } from '../skills-import.js';
 
 /** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
  *  页面为独立静态文件 packages/cli/ui/（不内嵌），改页面刷新即生效、无需重新构建。 */
@@ -23,25 +26,7 @@ const API_DOC_TEXT_LIMIT = 64 * 1024;
 
 const isSidecar = (name: string): boolean => name.endsWith('-shm') || name.endsWith('-wal') || name.endsWith('.log');
 
-/** 从 SKILL.md frontmatter 提取 description（支持 >- / | 等块标量的多行折叠） */
-function extractDescription(text: string): string | null {
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!fm) return null;
-  const lines = fm[1].split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^description:\s*(.*)$/.exec(lines[i]);
-    if (!m) continue;
-    const inline = m[1].trim();
-    if (inline && !/^[>|][+-]?$/.test(inline)) return inline;
-    const folded: string[] = [];
-    for (let j = i + 1; j < lines.length; j++) {
-      if (!/^\s+\S/.test(lines[j])) break;
-      folded.push(lines[j].trim());
-    }
-    return folded.length ? folded.join(' ') : null;
-  }
-  return null;
-}
+/** extractDescription 从 SKILL.md frontmatter 提取 description，实现见 skills-import.ts（与导入功能共用） */
 
 /** UI 静态文件目录：WALLE_UI_DIR > Vue 构建产物 ui/dist > 旧版单文件 ui/ */
 function resolveUiDir(): string | null {
@@ -87,6 +72,17 @@ function serveUiFile(res: http.ServerResponse, rel: string): void {
 function json(res: http.ServerResponse, data: unknown): void {
   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(data));
+}
+
+/** 递归收集目录下普通文件为 zip 条目（相对 base 的路径；符号链接跳过防环） */
+function collectDirEntries(dir: string, base: string, out: ZipEntry[]): void {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, e.name);
+    const rel = path.relative(base, abs).replace(/\\/g, '/');
+    if (e.isSymbolicLink()) continue;
+    if (e.isDirectory()) collectDirEntries(abs, base, out);
+    else if (e.isFile()) out.push({ name: rel, data: fs.readFileSync(abs) });
+  }
 }
 
 export async function cmdServe(rest: string[]): Promise<void> {
@@ -390,6 +386,95 @@ export async function cmdServe(rest: string[]): Promise<void> {
           })
           .sort((a, b) => a.name.localeCompare(b.name));
         json(res, { files });
+        return;
+      }
+      // 技能下载：GET /api/skills/download?asset=<id> —— 打包技能目录为 zip。
+      // walle 只把 SKILL.md 收进 CAS，但技能目录（脚本/参考文档）在磁盘上完整存在，
+      // 优先打包磁盘目录；目录已消失时回退 CAS 里的 SKILL.md 单文件。
+      if (url.pathname === '/api/skills/download') {
+        const asset = store.getAssetById(Number(url.searchParams.get('asset')));
+        if (!asset || asset.kind !== 'skill') { json(res, { error: 'skill asset not found' }); return; }
+        const adapter = adapters.find((x) => x.id === asset.tool);
+        const rootRow = store.db.prepare('SELECT root_path FROM source WHERE tool = ?').get(asset.tool) as { root_path: string } | undefined;
+        const abs = adapter && rootRow
+          ? (adapter.resolve ? adapter.resolve(rootRow.root_path, asset.path) : path.resolve(rootRow.root_path, asset.path))
+          : null;
+        const dir = abs ? path.dirname(abs) : null;
+        const name = dir && path.basename(dir) ? path.basename(dir) : 'skill';
+        const entries: ZipEntry[] = [];
+        if (dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+          collectDirEntries(dir, dir, entries);
+        }
+        if (!entries.length && asset.contentHash && cas.has(asset.contentHash)) {
+          entries.push({ name: 'SKILL.md', data: cas.get(asset.contentHash)! });
+        }
+        if (!entries.length) { json(res, { error: '技能目录不存在且内容不在仓中' }); return; }
+        const zip = createZip(entries.map((e) => ({ name: `${name}/${e.name}`, data: e.data })));
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'content-disposition': `attachment; filename="skill.zip"; filename*=UTF-8''${encodeURIComponent(name)}.zip`,
+          'cache-control': 'no-store',
+        });
+        res.end(zip);
+        return;
+      }
+      // 技能导入·发现：POST /api/skills/import/discover body { url } —— 下载 zip 并列出候选技能（不写盘）
+      if (url.pathname === '/api/skills/import/discover' && req.method === 'POST') {
+        if (!readWalleConfig().allowWrite) { json(res, { error: '写回开关未开启（walle write-enable）' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 64 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          void (async () => {
+            try {
+              const { url: src } = JSON.parse(body) as { url?: string };
+              const parsed = parseSkillSource(String(src ?? ''));
+              const skills = discoverSkillsFromZip(await fetchZipBytes(parsed.zipUrls));
+              json(res, { ok: true, source: parsed.display, skills });
+            } catch (err) {
+              json(res, { error: (err as Error).message });
+            }
+          })();
+        });
+        return;
+      }
+      // 技能导入·安装：POST /api/skills/import body { url, skills: string[], targets: [{tool, mode}], overwrite? }
+      if (url.pathname === '/api/skills/import' && req.method === 'POST') {
+        if (!readWalleConfig().allowWrite) { json(res, { error: '写回开关未开启（walle write-enable）' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 64 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          void (async () => {
+            try {
+              const { url: src, skills, targets, overwrite } = JSON.parse(body) as {
+                url?: string; skills?: string[]; targets?: LinkTarget[]; overwrite?: boolean;
+              };
+              if (!Array.isArray(skills) || !skills.length) { json(res, { error: '未选择要安装的技能' }); return; }
+              const parsed = parseSkillSource(String(src ?? ''));
+              const buf = await fetchZipBytes(parsed.zipUrls);
+              const agentsRoot = resolveToolRoot('agents');
+              const knownTools = new Set(TOOL_ROOT_DEFS.map((d) => d.tool));
+              const result = installSkillsFromZip(buf, skills, {
+                storeSkillsDir: path.join(agentsRoot, 'skills'),
+                targets: (targets ?? []).filter((t) => knownTools.has(t.tool) && (t.mode === 'link' || t.mode === 'copy')),
+                overwrite: !!overwrite,
+                toolRootOf: (tool) => resolveToolRoot(tool),
+              });
+              // 安装涉及的源重扫（共享库 + 被接入的工具），让 UI 立即看到新技能
+              const scanSources = [...new Set(['agents', ...(targets ?? []).map((t) => t.tool)])];
+              let scanError: string | null = null;
+              try { await runScan(adapters, store, cas, { sources: scanSources }); } catch (err) { scanError = (err as Error).message; }
+              json(res, { ok: true, source: parsed.display, results: result, scanError });
+            } catch (err) {
+              json(res, { error: (err as Error).message });
+            }
+          })();
+        });
         return;
       }
       // 技能聚合视图：各工具 skill 资产 + agents 共享库本体，按 realpath 分组（P5.2）
