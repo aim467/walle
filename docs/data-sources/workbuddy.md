@@ -87,3 +87,13 @@
 | `skills/<name>/SKILL.md` | ✅ 安全 | 单文件，可直接编辑下发 |
 | `projects/**/*.jsonl`、`workbuddy.db` | ❌ 永不写回 | 会话记录永远只读 |
 | `keyblob` / `.master.key` / `connectors/*` | ⚠️ 谨慎 | 加密密钥与连接器状态，写坏即登录态失效 |
+
+## 第二实例根（v1.11 双根，2026-10-05 实测）
+
+真机上新版 WorkBuddy 的 home 在 `~/.workbuddy`（旧实例为 `~/.workbuddy-ai`），两者目录结构完全同构（settings/SOUL/USER/memory/skills/plugins/connectors/projects/tasks/audit-log/workbuddy.db/keyblob 全部一致）。适配器按 cursor 双根模式接入：
+
+- `TOOL_ROOT_DEFS` 新增 `workbuddy.home` 键（env `WALLE_WORKBUDDY_HOME`，设置页可改）；第二根不存在时静默跳过。
+- 第二根资产路径统一打 `home:` 前缀（如 `home:skills/cloud-design/SKILL.md`），`resolve()` 反解到真实路径；tool id 仍为 workbuddy，UI 图标/标签自动复用。
+- 两实例同名的技能/记忆在 `/api/skills` 等聚合视图按 realpath 归组，语义为"同一资产被两个实例接入"。
+- **`sessions/*.json` 不收**：实测为 CLI 宿主进程心跳元数据（pid/heartbeat/endpoint/version），属运行时噪音。
+- 同一会话 id 在两个实例都有记录时，会话文件与两个 db 的标题经 noDocs 合并到同一资产（后合并方 null 不降级）。

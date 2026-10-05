@@ -18,6 +18,8 @@ process.env.WALLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-test-'));
 // cursor/opencode 的数据根重定向到固件，绝不读取真机数据
 process.env.WALLE_CURSOR_APPDATA = path.join(fixtures, 'cursor-appdata');
 process.env.WALLE_OPENCODE_DATA = path.join(fixtures, 'opencode-data');
+// workbuddy 第二实例根重定向到固件，绝不读取真机 ~/.workbuddy
+process.env.WALLE_WORKBUDDY_HOME = path.join(fixtures, 'workbuddy-home');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));
@@ -184,6 +186,25 @@ test('五源扫描：workbuddy 产出资产并标记凭证', async () => {
   // 无在用标记：版本号数值比较取最大（10.0.0 优先于 0.9.0，字典序会取错）
   assert.ok(wb.some((a) => a.path.includes('fixture-plugin2/10.0.0/')), '无在用标记时应取版本号最大者');
   assert.ok(!wb.some((a) => a.path.includes('fixture-plugin2/0.9.0/')), '不应取字典序较小的版本');
+
+  // 第二实例根（~/.workbuddy）：home: 前缀资产入库，图标/工具复用（tool 仍是 workbuddy）
+  assert.ok(wb.some((a) => a.path === 'home:skills/fixture-skill2/SKILL.md' && a.kind === 'skill'), '第二实例 skill 应以 home: 前缀入库');
+  assert.ok(wb.some((a) => a.path === 'home:USER.md' && a.kind === 'memory'), '第二实例身份文件应入库');
+  const homeKeyblob = wb.find((a) => a.path === 'home:keyblob');
+  assert.ok(homeKeyblob && homeKeyblob.kind === 'secret' && homeKeyblob.sensitive === 1, '第二实例 keyblob 应标记 secret');
+  assert.ok(!wb.some((a) => a.path.includes('sessions/')), 'CLI 心跳 sessions/*.json 不应入库');
+  // resolve 反解：home: 前缀指向第二实例根，普通路径指向主根
+  const wbAdapter = adapters.find((x) => x.id === 'workbuddy');
+  assert.equal(
+    wbAdapter.resolve(roots.workbuddy, 'home:USER.md'),
+    path.join(fixtures, 'workbuddy-home', 'USER.md'),
+    'home: 前缀应 resolve 到第二实例根',
+  );
+  assert.equal(
+    wbAdapter.resolve(roots.workbuddy, 'USER.md'),
+    path.join(fixtures, 'workbuddy', 'USER.md'),
+    '无前缀路径应 resolve 到主根',
+  );
 });
 
 test('workbuddy 凭证永不入全文索引', () => {
@@ -273,7 +294,9 @@ test('workbuddy 会话：DB 标题合并 / ai-title 兜底 / 剥离注入块', (
 
   const b = rows.find((s) => s.tool === 'workbuddy' && s.subId === '22222222-2222-4222-8222-222222222222');
   assert.ok(b, 'workbuddy 会话 B 应入库');
-  assert.equal(b.title, 'JSONL 兜底标题', 'DB 无记录时应回退到 JSONL ai-title');
+  // 主根 db 无 B 记录，第二实例根 db（home:workbuddy.db）有——db 标题合并仍应生效并压过 ai-title
+  assert.equal(b.title, '第二实例数据库标题', '第二实例 db 标题应合并到会话资产');
+  assert.equal(b.model, 'fixture-model-home', '第二实例 db model 应合并');
 
   // 会话 A 内容：用户真实提问从 <user_query> 提取，注入块被剥离
   const wb = adapters.find((x) => x.id === 'workbuddy');

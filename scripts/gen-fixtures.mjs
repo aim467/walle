@@ -168,6 +168,26 @@ write(
 write('cursor-appdata/User/settings.json', JSON.stringify({ 'editor.fontSize': 14 }));
 
 // ---------- workbuddy（单根 ~/.workbuddy-ai 的脱敏样本） ----------
+// 第二实例根 fixtures/workbuddy-home 的会话索引库引用了主根的 wbSessB（同一会话在两个实例出现），
+// 故本段先生成会话与 wbSessB 常量。
+const wbSessA = '11111111-1111-4111-8111-111111111111';
+const wbSessB = '22222222-2222-4222-8222-222222222222';
+
+// ---------- workbuddy-home（第二实例根 ~/.workbuddy 的脱敏样本，结构同 workbuddy/） ----------
+write('workbuddy-home/SOUL.md', '# SOUL\n\nfixture home soul\n');
+write('workbuddy-home/USER.md', '# USER\n\nfixture home user\n');
+write('workbuddy-home/memory/fixture-uid2_memory.md', '# Home Memory\n\nfixture home memory\n');
+write('workbuddy-home/skills/fixture-skill2/SKILL.md', '---\nname: fixture-skill2\ndescription: fixture home skill\n---\n\nfixture home skill body\n');
+write('workbuddy-home/keyblob', 'fixture-home-keyblob-000000000000');
+// sessions/*.json 是 CLI 进程心跳元数据（pid/heartbeat），适配器明确不扫——放一个用于验证不误收
+write('workbuddy-home/sessions/heartbeat.json', JSON.stringify({ pid: 1, kind: 'interactive', version: '2.115.0' }));
+// 第二实例会话索引库：指向主根的会话 B，验证 home: 前缀 db 的解析与标题合并
+{
+  const db = openDb('workbuddy-home/workbuddy.db');
+  db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, custom_title TEXT, cwd TEXT, model TEXT, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER);
+INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessB}', '第二实例数据库标题', 'D:\\fixture\\other', 'fixture-model-home', 1789300000000, 1789300001000, NULL);`);
+  db.close();
+}
 write('workbuddy/settings.json', JSON.stringify({ theme: 'dark', sandbox: { extraAllowWrite: [] } }, null, 2));
 write('workbuddy/mcp-tool-list.json', JSON.stringify({ tools: [{ name: 'fixture-mcp-tool' }] }, null, 2));
 write('workbuddy/mcp-approvals.json', JSON.stringify({}));
@@ -194,7 +214,6 @@ write('workbuddy/keyblob', 'fixture-keyblob-0000000000000000');
 write('workbuddy/audit-log/2026-10-01.jsonl', JSON.stringify({ sessionId: '11111111-1111-4111-8111-111111111111', eventType: 'command-safety.sandbox-executed', decision: 'allowed' }) + '\n');
 
 // 会话 A：workbuddy.db 有权威标题（验证 noDocs 合并）；用户提问藏在 <system-reminder> 之后的 <user_query>
-const wbSessA = '11111111-1111-4111-8111-111111111111';
 write(
   `workbuddy/projects/c-fixture-proj/${wbSessA}.jsonl`,
   [
@@ -215,7 +234,6 @@ write(
 );
 
 // 会话 B：workbuddy.db 无记录（验证 ai-title 兜底）
-const wbSessB = '22222222-2222-4222-8222-222222222222';
 write(
   `workbuddy/projects/d-fixture-other/${wbSessB}.jsonl`,
   [
