@@ -23,14 +23,15 @@ const TOOLS: ToolDef[] = [
   { id: 'codex', name: 'Codex CLI', logo: openaiLogo },
   { id: 'zcode', name: 'ZCode', logo: zcodeLogo },
   { id: 'cursor', name: 'Cursor', logo: cursorLogo },
-  { id: 'workbuddy', name: 'WorkBuddy', logo: workbuddyLogo },
+  { id: 'workbuddy', name: 'WorkBuddy 国际版', logo: workbuddyLogo },
+  { id: 'workbuddy-cn', name: 'WorkBuddy 国内版', logo: workbuddyLogo },
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo },
 ];
 const toolDef = (t: string) => TOOLS.find((x) => x.id === t);
 const toolName = (t: string) => toolDef(t)?.name ?? t;
 const toolLogo = (t: string) => toolDef(t)?.logo;
 /** 接入工具盒子只展示 AI 工具（agents 是存储库本身，不算接入方） */
-const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy'];
+const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn'];
 
 const skills = ref<SkillGroup[]>([]);
 const loading = ref(false);
@@ -237,7 +238,8 @@ const TARGET_DEFS = [
   { tool: 'zcode', label: 'ZCode', hint: '~/.zcode/skills' },
   { tool: 'cursor', label: 'Cursor', hint: '~/.cursor/skills' },
   { tool: 'opencode', label: 'OpenCode', hint: '~/.config/opencode/skills' },
-  { tool: 'workbuddy', label: 'WorkBuddy', hint: '~/.workbuddy-ai/skills' },
+  { tool: 'workbuddy', label: 'WorkBuddy 国际版', hint: '~/.workbuddy-ai/skills' },
+  { tool: 'workbuddy-cn', label: 'WorkBuddy 国内版', hint: '~/.workbuddy/skills' },
 ];
 const targetState = ref<Record<string, { on: boolean; mode: 'link' | 'copy' }>>(
   Object.fromEntries(TARGET_DEFS.map((t) => [t.tool, { on: t.tool !== 'codex', mode: 'link' as const }])),
@@ -461,7 +463,7 @@ onMounted(load);
           <span class="lh-title">技能</span>
           <span class="lh-n">{{ filtered.length }} 项 · 数据来自本地扫描</span>
           <span class="flex1" />
-          <n-select v-model:value="sortBy" :options="sortOptions" size="small" class="sortsel" />
+          <n-select v-model:value="sortBy" :options="sortOptions" size="medium" class="sortsel" />
         </div>
         <div class="list-scroll">
           <div

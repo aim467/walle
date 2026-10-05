@@ -42,7 +42,8 @@ const TOOLS: ToolDef[] = [
   { id: 'codex', name: 'Codex CLI', logo: openaiLogo, letter: 'C', color: '#10a37f' },
   { id: 'cursor', name: 'Cursor', logo: cursorLogo, letter: 'C', color: '#111' },
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo, letter: 'O', color: '#111' },
-  { id: 'workbuddy', name: 'WorkBuddy', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
+  { id: 'workbuddy', name: 'WorkBuddy 国际版', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
+  { id: 'workbuddy-cn', name: 'WorkBuddy 国内版', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#34c759,#0a84ff)' },
 ];
 
 const activeTool = ref<string | null>(null); // null = 全部工具

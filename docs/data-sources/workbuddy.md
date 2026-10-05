@@ -88,7 +88,15 @@
 | `projects/**/*.jsonl`、`workbuddy.db` | ❌ 永不写回 | 会话记录永远只读 |
 | `keyblob` / `.master.key` / `connectors/*` | ⚠️ 谨慎 | 加密密钥与连接器状态，写坏即登录态失效 |
 
-## 第二实例根（v1.11 双根，2026-10-05 实测）
+## 国内版 / 国际版双账户（v1.12，2026-10-05 实测）
+
+真机上存在两个 WorkBuddy 实例：`~/.workbuddy-ai`（国际版）与 `~/.workbuddy`（国内版）。实测两者目录结构完全同构（settings/SOUL/USER/memory/skills/plugins/connectors/projects/tasks/audit-log/workbuddy.db/keyblob），但它们是**不同账户的两次登录**，不是同一账户的双安装——必须作为两个独立数据源分开管理。
+
+- 两个独立适配器：workbuddy（国际版，`~/.workbuddy-ai`）与 workbuddy-cn（国内版，`~/.workbuddy`）；TOOL_ROOT_DEFS 键分别为 workbuddy / workbuddy-cn（env WALLE_WORKBUDDY_CN）。国内版根不存在时 detect 返回 null、源不出现。
+- 扫描/解析逻辑同构，复用 workbuddy.ts 导出的 walkWorkbuddyBase。
+- 账户隔离：noDocs 标题合并的 findAssetIdByPathFragment 按 tool 过滤，国内版 db 的会话行不会合并到国际版会话资产上；国内版 db 中无对应 jsonl 的孤儿会话行以国内版 db 资产为载体出现在会话清单（db 即会话索引，如实反映）。
+- `sessions/*.json` 不收：CLI 宿主进程心跳元数据（pid/heartbeat/endpoint/version），运行时噪音。
+- UI 图标复用 workbuddy.svg，靠「国际版/国内版」文字标签区分；用量统计、技能组、会话清单天然按账户分开。
 
 真机上新版 WorkBuddy 的 home 在 `~/.workbuddy`（旧实例为 `~/.workbuddy-ai`），两者目录结构完全同构（settings/SOUL/USER/memory/skills/plugins/connectors/projects/tasks/audit-log/workbuddy.db/keyblob 全部一致）。适配器按 cursor 双根模式接入：
 

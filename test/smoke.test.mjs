@@ -18,8 +18,8 @@ process.env.WALLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-test-'));
 // cursor/opencode 的数据根重定向到固件，绝不读取真机数据
 process.env.WALLE_CURSOR_APPDATA = path.join(fixtures, 'cursor-appdata');
 process.env.WALLE_OPENCODE_DATA = path.join(fixtures, 'opencode-data');
-// workbuddy 第二实例根重定向到固件，绝不读取真机 ~/.workbuddy
-process.env.WALLE_WORKBUDDY_HOME = path.join(fixtures, 'workbuddy-home');
+// workbuddy 国内版根重定向到固件，绝不读取真机 ~/.workbuddy
+process.env.WALLE_WORKBUDDY_CN = path.join(fixtures, 'workbuddy-home');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));
@@ -28,6 +28,7 @@ const roots = {
   zcode: path.join(fixtures, 'zcode'),
   cursor: path.join(fixtures, 'cursor'),
   opencode: path.join(fixtures, 'opencode'),
+  'workbuddy-cn': path.join(fixtures, 'workbuddy-home'),
   workbuddy: path.join(fixtures, 'workbuddy'),
   agents: path.join(fixtures, 'agents-store'),
 };
@@ -187,24 +188,15 @@ test('五源扫描：workbuddy 产出资产并标记凭证', async () => {
   assert.ok(wb.some((a) => a.path.includes('fixture-plugin2/10.0.0/')), '无在用标记时应取版本号最大者');
   assert.ok(!wb.some((a) => a.path.includes('fixture-plugin2/0.9.0/')), '不应取字典序较小的版本');
 
-  // 第二实例根（~/.workbuddy）：home: 前缀资产入库，图标/工具复用（tool 仍是 workbuddy）
-  assert.ok(wb.some((a) => a.path === 'home:skills/fixture-skill2/SKILL.md' && a.kind === 'skill'), '第二实例 skill 应以 home: 前缀入库');
-  assert.ok(wb.some((a) => a.path === 'home:USER.md' && a.kind === 'memory'), '第二实例身份文件应入库');
-  const homeKeyblob = wb.find((a) => a.path === 'home:keyblob');
-  assert.ok(homeKeyblob && homeKeyblob.kind === 'secret' && homeKeyblob.sensitive === 1, '第二实例 keyblob 应标记 secret');
-  assert.ok(!wb.some((a) => a.path.includes('sessions/')), 'CLI 心跳 sessions/*.json 不应入库');
-  // resolve 反解：home: 前缀指向第二实例根，普通路径指向主根
-  const wbAdapter = adapters.find((x) => x.id === 'workbuddy');
-  assert.equal(
-    wbAdapter.resolve(roots.workbuddy, 'home:USER.md'),
-    path.join(fixtures, 'workbuddy-home', 'USER.md'),
-    'home: 前缀应 resolve 到第二实例根',
-  );
-  assert.equal(
-    wbAdapter.resolve(roots.workbuddy, 'USER.md'),
-    path.join(fixtures, 'workbuddy', 'USER.md'),
-    '无前缀路径应 resolve 到主根',
-  );
+  // 国内版（workbuddy-cn，~/.workbuddy）：独立账户独立 tool id，资产分开管理
+  const cn = all.filter((a) => a.tool === 'workbuddy-cn');
+  assert.ok(cn.some((a) => a.path === 'skills/fixture-skill2/SKILL.md' && a.kind === 'skill'), '国内版 skill 应入库（无前缀，独立 tool id）');
+  assert.ok(cn.some((a) => a.path === 'USER.md' && a.kind === 'memory'), '国内版身份文件应入库');
+  const homeKeyblob = cn.find((a) => a.path === 'keyblob');
+  assert.ok(homeKeyblob && homeKeyblob.kind === 'secret' && homeKeyblob.sensitive === 1, '国内版 keyblob 应标记 secret');
+  assert.ok(!cn.some((a) => a.path.includes('sessions/')), 'CLI 心跳 sessions/*.json 不应入库');
+  // 两账户资产互不混同：主根断言仍指向国际版（workbuddy），路径不带前缀
+  assert.ok(!wb.some((a) => a.path.startsWith('home:')), '国际版资产不应残留 home: 前缀');
 });
 
 test('workbuddy 凭证永不入全文索引', () => {
@@ -293,10 +285,14 @@ test('workbuddy 会话：DB 标题合并 / ai-title 兜底 / 剥离注入块', (
   assert.equal(a.model, 'fixture-model', 'workbuddy.db model 应合并');
 
   const b = rows.find((s) => s.tool === 'workbuddy' && s.subId === '22222222-2222-4222-8222-222222222222');
-  assert.ok(b, 'workbuddy 会话 B 应入库');
-  // 主根 db 无 B 记录，第二实例根 db（home:workbuddy.db）有——db 标题合并仍应生效并压过 ai-title
-  assert.equal(b.title, '第二实例数据库标题', '第二实例 db 标题应合并到会话资产');
-  assert.equal(b.model, 'fixture-model-home', '第二实例 db model 应合并');
+  assert.ok(b, '国际版会话 B 应入库');
+  assert.equal(b.title, 'JSONL 兜底标题', '国际版 db 无 B 记录，应回退 jsonl ai-title');
+  // 账户隔离：国内版 db 的 B 行在 findAssetIdByPathFragment（按 .tool 过滤）找不到国内版会话文件，
+  // 不会跨账户合并到国际版会话上；孤儿 db 行以国内版 db 资产为载体独立出现在清单（如实反映索引）
+  const orphan = rows.find((s) => s.tool === 'workbuddy-cn' && s.subId === '22222222-2222-4222-8222-222222222222');
+  assert.ok(orphan, '国内版 db 的 B 行应独立出现在 workbuddy-cn 会话清单');
+  assert.equal(orphan.title, '第二实例数据库标题', '国内版孤儿行标题来自国内版 db');
+  assert.notEqual(rows.find((s) => s.tool === 'workbuddy' && s.subId === '22222222-2222-4222-8222-222222222222')?.title, '第二实例数据库标题', '国际版会话标题不得被国内版 db 污染');
 
   // 会话 A 内容：用户真实提问从 <user_query> 提取，注入块被剥离
   const wb = adapters.find((x) => x.id === 'workbuddy');

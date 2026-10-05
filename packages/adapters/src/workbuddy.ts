@@ -6,10 +6,8 @@ import { resolveToolRoot } from './roots.js';
 import { parseWorkbuddyRollout, parseWorkbuddyDb } from './parse.js';
 
 /**
- * WorkBuddy 适配器。格式细节见 docs/data-sources/workbuddy.md（全部实测）。
- * 双根（cursor.appdata 同模式）：
- *   主根 ~/.workbuddy-ai（旧实例）/ 第二实例根 ~/.workbuddy（新实例，结构同构）。
- *   第二根资产路径打 'home:' 前缀（resolve 反解），tool id 不变 → UI 图标/标签自动复用。
+ * WorkBuddy 适配器（国际版，~/.workbuddy-ai）。格式细节见 docs/data-sources/workbuddy.md（全部实测）。
+ * 国内版是不同账户的独立实例（~/.workbuddy），由 workbuddy-cn.ts 适配器管理，勿混同。
  * 会话正文在 projects/<项目slug>/<会话id>.jsonl；workbuddy.db 是会话索引（标题/cwd/model）；
  * skills/ 为技能，plugins/cache/ 为插件，connectors/ 与 keyblob 含凭证（secret）；
  * memory/ 与根身份文件是记忆/画像。
@@ -90,28 +88,23 @@ function pickPluginVersion(pluginDir: string): string | null {
   return inUse ?? versions[versions.length - 1];
 }
 
-/** 第二实例根（~/.workbuddy，新版 WorkBuddy home，结构与主根同构） */
-function homeRoot(): string {
-  return resolveToolRoot('workbuddy.home');
-}
-
-/** 遍历单个实例根下的全部可入库资产；prefix 为路径前缀（主根 ''，第二根 'home:'） */
-async function* walkWorkbuddyBase(base: string, prefix: string): AsyncIterable<RawAsset> {
+/** 遍历单个实例根下的全部可入库资产（workbuddy 与 workbuddy-cn 共用，两账户结构同构） */
+export async function* walkWorkbuddyBase(base: string): AsyncIterable<RawAsset> {
   // 1. 根目录已知文件 + 凭证
   for (const { file, kind, name, sensitive } of ROOT_FILES) {
     const a = statAsset(base, file, kind, fmt(file), { name, sensitive });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
   for (const { file, name } of ROOT_SECRETS) {
     const a = statAsset(base, file, 'secret', fmt(file), { name, sensitive: true });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
 
   // 2. 记忆：memory/**.md（用户级长期记忆）
   for (const f of walkFiles(base, 'memory', { ignoreDirNames: IGNORE_DIRS })) {
     if (!f.rel.endsWith('.md')) continue;
     const a = statAsset(base, toRel(base, f.abs), 'memory', 'markdown', { name: path.basename(f.rel, '.md') });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
 
   // 3. 技能：skills/<name>/SKILL.md（每个技能一个资产，附属文件 P2 降噪不收）
@@ -119,7 +112,7 @@ async function* walkWorkbuddyBase(base: string, prefix: string): AsyncIterable<R
     if (path.basename(f.rel) !== 'SKILL.md') continue;
     const skillName = f.rel.split('/')[0];
     const a = statAsset(base, toRel(base, f.abs), 'skill', 'markdown', { name: skillName });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
 
   // 4. 插件：plugins/cache/<市场>/<插件>/<版本>/.codebuddy-plugin/plugin.json（取在用版本）
@@ -135,9 +128,9 @@ async function* walkWorkbuddyBase(base: string, prefix: string): AsyncIterable<R
         if (!ver) continue;
         const rel = toRel(base, path.join(pluginDir, ver));
         const manifest = statAsset(base, `${rel}/.codebuddy-plugin/plugin.json`, 'plugin', 'json', { name: plugin.name });
-        if (manifest) yield { ...manifest, path: prefix + manifest.path };
+        if (manifest) yield manifest;
         const mcpCfg = statAsset(base, `${rel}/.mcp.json`, 'mcp', 'json', { name: `${plugin.name}-mcp` });
-        if (mcpCfg) yield { ...mcpCfg, path: prefix + mcpCfg.path };
+        if (mcpCfg) yield mcpCfg;
       }
     }
   } catch {
@@ -150,10 +143,10 @@ async function* walkWorkbuddyBase(base: string, prefix: string): AsyncIterable<R
     const rel = toRel(base, f.abs);
     if (baseName === '.master.key') {
       const a = statAsset(base, rel, 'secret', 'text', { name: 'connector-master-key', sensitive: true });
-      if (a) yield { ...a, path: prefix + a.path };
+      if (a) yield a;
     } else if (baseName.endsWith('.json')) {
       const a = statAsset(base, rel, 'config', 'json', { name: baseName.replace(/\.json$/, '') });
-      if (a) yield { ...a, path: prefix + a.path };
+      if (a) yield a;
     }
   }
 
@@ -163,39 +156,33 @@ async function* walkWorkbuddyBase(base: string, prefix: string): AsyncIterable<R
     if (!baseName.endsWith('.jsonl') || baseName.endsWith('.file-rollback.ndjson')) continue;
     if (isSidecarOrLog(baseName)) continue;
     const a = statAsset(base, toRel(base, f.abs), 'session', 'jsonl', { name: baseName.replace(/\.jsonl$/, '') });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
 
   // 7. 任务记录：tasks/<会话id>/<n>.json
   for (const f of walkFiles(base, 'tasks', { ignoreDirNames: IGNORE_DIRS })) {
     if (!f.rel.endsWith('.json') || isSidecarOrLog(path.basename(f.abs))) continue;
     const a = statAsset(base, toRel(base, f.abs), 'other', 'json', { name: 'task' });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
 
   // 8. 审计日志：audit-log/**/*.jsonl（安全决策留痕）
   for (const f of walkFiles(base, 'audit-log', { ignoreDirNames: IGNORE_DIRS })) {
     if (!f.rel.endsWith('.jsonl')) continue;
     const a = statAsset(base, toRel(base, f.abs), 'other', 'jsonl', { name: 'audit-log' });
-    if (a) yield { ...a, path: prefix + a.path };
+    if (a) yield a;
   }
 }
 
 export const workbuddyAdapter: Adapter = {
   id: 'workbuddy',
-  displayName: 'WorkBuddy',
+  displayName: 'WorkBuddy 国际版',
   capabilities: { read: true, write: true },
 
   parse(contentPath, raw, mode: ParseMode): ParsedResult | null {
     if (raw.kind === 'session' && raw.path.endsWith('.jsonl')) return parseWorkbuddyRollout(contentPath, mode);
-    if (raw.path === 'workbuddy.db' || raw.path.endsWith(':workbuddy.db')) return parseWorkbuddyDb(contentPath);
+    if (raw.path === 'workbuddy.db') return parseWorkbuddyDb(contentPath);
     return null;
-  },
-
-  /** 资产相对路径 → 磁盘绝对路径（'home:' 前缀指向第二实例根） */
-  resolve(root: string, rel: string): string {
-    if (rel.startsWith('home:')) return path.join(homeRoot(), rel.slice('home:'.length));
-    return path.resolve(root, rel);
   },
 
   detect(rootOverride?: string): string | null {
@@ -208,13 +195,6 @@ export const workbuddyAdapter: Adapter = {
   },
 
   async *discover(root: string): AsyncIterable<RawAsset> {
-    yield* walkWorkbuddyBase(root, '');
-    // 第二实例根（~/.workbuddy）：不存在则静默跳过
-    try {
-      const home = homeRoot();
-      if (fs.statSync(home).isDirectory()) yield* walkWorkbuddyBase(home, 'home:');
-    } catch {
-      /* 第二实例根未配置或不可访问 */
-    }
+    yield* walkWorkbuddyBase(root);
   },
 };
