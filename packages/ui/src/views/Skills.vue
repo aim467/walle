@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { NInput, NSelect, NEmpty, NButton, NDropdown, useMessage } from 'naive-ui';
+import { ref, computed, onMounted, h } from 'vue';
+import { NInput, NSelect, NEmpty, NButton, NDropdown, NTabs, NTab, NTag, NDataTable, NProgress, useMessage } from 'naive-ui';
+import type { DataTableColumns } from 'naive-ui';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -49,9 +50,9 @@ function groupStatus(g: SkillGroup): 'store' | 'linked' | 'copy' {
   return 'copy';
 }
 const statusMeta = {
-  store: { label: '共享库', cls: 'blue' },
-  linked: { label: '已链接', cls: 'green' },
-  copy: { label: '目录副本', cls: '' },
+  store: { label: '共享库', type: 'info' },
+  linked: { label: '已链接', type: 'success' },
+  copy: { label: '目录副本', type: 'default' },
 } as const;
 const STATUS_CHIPS = [
   { v: 'all', label: '全部' },
@@ -68,6 +69,13 @@ function pathOf(g: SkillGroup): string {
   const p = g.storePath ?? g.entries[0]?.abs ?? '';
   return p.replace(/[/\\]SKILL\.md$/i, '');
 }
+
+const entryColumns: DataTableColumns<SkillEntry> = [
+  { title: '工具', key: 'tool', width: 110, render: (e) => toolName(e.tool) },
+  { title: '接入方式', key: 'linked', width: 90, render: (e) => (e.linked ? '符号链接' : '目录副本') },
+  { title: '路径', key: 'abs', ellipsis: { tooltip: true }, render: (e) => h('span', { class: 'mono' }, e.abs || e.path) },
+  { title: '大小', key: 'size', width: 70, render: (e) => fmtSize(e.size) },
+];
 
 /** 接入工具状态：链接/目录副本为真接入；Codex 对共享库技能是原生发现（codex.exe 硬编码 .agents/skills，实测） */
 function toolState(g: SkillGroup, toolId: string): { on: boolean; label: string } {
@@ -203,12 +211,12 @@ onMounted(load);
       <div class="panel list-panel">
         <div class="list-tools">
           <n-input v-model:value="q" placeholder="搜索技能名称、描述…" size="small" round clearable />
-          <div class="chip-row">
-            <button
-              v-for="c in STATUS_CHIPS" :key="c.v" class="chip" :class="{ on: statusFilter === c.v }"
-              @click="statusFilter = c.v"
-            >{{ c.label }}</button>
-          </div>
+          <n-tabs
+            type="segment" size="small" class="status-seg" :value="statusFilter"
+            @update:value="(v) => (statusFilter = v as typeof statusFilter)"
+          >
+            <n-tab v-for="c in STATUS_CHIPS" :key="c.v" :name="c.v">{{ c.label }}</n-tab>
+          </n-tabs>
           <div class="advanced">
             <n-select v-model:value="sourceFilter" :options="sourceOptions" size="tiny" />
             <n-select v-model:value="sortBy" :options="sortOptions" size="tiny" />
@@ -229,11 +237,11 @@ onMounted(load);
             </div>
             <div class="skill-desc dim">{{ s.description ?? '（无描述）' }}</div>
             <div class="meta">
-              <span class="tag" :class="statusMeta[groupStatus(s)].cls">
-                <span class="dot" :class="statusMeta[groupStatus(s)].cls" />{{ statusMeta[groupStatus(s)].label }}
-              </span>
-              <span v-for="e in s.entries.slice(0, 2)" :key="e.tool + e.path" class="tag">{{ toolName(e.tool) }}</span>
-              <span v-if="s.entries.length > 2" class="tag">+{{ s.entries.length - 2 }}</span>
+              <n-tag size="small" round :bordered="false" :type="statusMeta[groupStatus(s)].type">
+                {{ statusMeta[groupStatus(s)].label }}
+              </n-tag>
+              <n-tag v-for="e in s.entries.slice(0, 2)" :key="e.tool + e.path" size="small" round>{{ toolName(e.tool) }}</n-tag>
+              <n-tag v-if="s.entries.length > 2" size="small" round>+{{ s.entries.length - 2 }}</n-tag>
             </div>
           </div>
           <n-empty v-if="!filtered.length && !loading" description="没有匹配的技能" size="small" style="padding:36px 0" />
@@ -263,15 +271,15 @@ onMounted(load);
               <span>大小 <strong>{{ fmtSize(maxSize(selected)) }}</strong></span>
               <span>接入 <strong>{{ selected.entries.length }} 处</strong></span>
             </div>
-            <div class="tabs">
-              <button
-                v-for="t in [
-                  { k: 'overview', label: '概览' }, { k: 'markdown', label: 'SKILL.md' },
-                  { k: 'files', label: '文件' }, { k: 'usage', label: '使用情况' },
-                ]" :key="t.k" class="tab" :class="{ on: activeTab === t.k }"
-                @click="activeTab = t.k as typeof activeTab"
-              >{{ t.label }}</button>
-            </div>
+            <n-tabs
+              type="line" size="small" class="detail-tabs" :value="activeTab"
+              @update:value="(v) => (activeTab = v as typeof activeTab)"
+            >
+              <n-tab name="overview">概览</n-tab>
+              <n-tab name="markdown">SKILL.md</n-tab>
+              <n-tab name="files">文件</n-tab>
+              <n-tab name="usage">使用情况</n-tab>
+            </n-tabs>
           </div>
 
           <div class="detail-body">
@@ -305,17 +313,10 @@ onMounted(load);
               </div>
 
               <div class="section-title">安装位置</div>
-              <div class="source-card">
-                <div class="source-row head">
-                  <span>工具</span><span>接入方式</span><span>路径</span><span>大小</span>
-                </div>
-                <div v-for="e in selected.entries" :key="e.tool + e.path" class="source-row">
-                  <span>{{ toolName(e.tool) }}</span>
-                  <span>{{ e.linked ? '符号链接' : '目录副本' }}</span>
-                  <span class="source-path mono" :title="e.abs">{{ e.abs || e.path }}</span>
-                  <span class="dim">{{ fmtSize(e.size) }}</span>
-                </div>
-              </div>
+              <n-data-table
+                size="small" :bordered="false" :single-line="false"
+                :columns="entryColumns" :data="selected.entries"
+              />
             </template>
 
             <!-- SKILL.md -->
@@ -324,7 +325,7 @@ onMounted(load);
                 <div class="md-toolbar">
                   <div class="md-toolbar-left">
                     <span class="file-pill mono">SKILL.md</span>
-                    <span class="tag blue">Markdown</span>
+                    <n-tag size="small" type="info" :bordered="false">Markdown</n-tag>
                   </div>
                   <div class="md-toolbar-right">
                     <n-button size="tiny" secondary @click="notYet('编辑')">编辑</n-button>
@@ -371,7 +372,12 @@ onMounted(load);
                     </span>
                     <span class="usage-version dim">{{ toolState(selected, t).on ? toolState(selected, t).label : '未接入' }}</span>
                   </div>
-                  <div class="usage-line"><i :class="{ full: toolState(selected, t).on }" /></div>
+                  <n-progress
+                    class="usage-line"
+                    type="line" :show-indicator="false" :height="7" :border-radius="5"
+                    :percentage="toolState(selected, t).on ? 100 : 0"
+                    :color="toolState(selected, t).on ? '#4c91ef' : '#d3d7dc'"
+                  />
                   <div class="usage-foot dim">
                     <span>{{ toolState(selected, t).on ? '接入正常' : '可接入' }}</span>
                     <span>—</span>
@@ -401,10 +407,7 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 /* 左侧清单 */
 .list-panel { display: flex; flex-direction: column; }
 .list-tools { padding: 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.chip { height: 26px; padding: 0 10px; border: 1px solid var(--border); background: #fff; border-radius: 13px; color: var(--dim); font-size: 11.5px; cursor: pointer; }
-.chip:hover { background: var(--bg); }
-.chip.on { background: #eaf3ff; border-color: #9ec5ff; color: #1468db; font-weight: 600; }
+.status-seg { margin-top: 9px; }
 .advanced { display: flex; gap: 7px; margin-top: 8px; }
 .list-summary { display: flex; justify-content: space-between; padding: 7px 12px 5px; font-size: 11px; flex-shrink: 0; }
 .skill-list { overflow: auto; flex: 1; padding: 0 8px 8px; overscroll-behavior: contain; }
@@ -416,11 +419,7 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .skill-count { font-size: 11px; white-space: nowrap; }
 .skill-desc { margin-top: 4px; font-size: 11px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meta { display: flex; gap: 5px; margin-top: 7px; align-items: center; flex-wrap: wrap; }
-.tag { height: 19px; padding: 0 7px; border-radius: 10px; background: #f0f2f4; color: #666b73; font-size: 10px; display: inline-flex; align-items: center; gap: 4px; }
-.tag.blue { background: #eaf3ff; color: #1670e8; }
-.tag.green { background: #eaf8f1; color: #168455; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #9aa0a8; display: inline-block; }
-.dot.blue { background: #1670e8; }
 .dot.green { background: #18a566; }
 
 /* 右侧详情 */
@@ -433,10 +432,7 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .pathbar { margin-top: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; height: 32px; display: flex; align-items: center; padding: 0 10px; color: #5f646b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .detail-meta { display: flex; gap: 18px; margin: 11px 0 12px; flex-wrap: wrap; }
 .detail-meta strong { color: #3e4248; font-weight: 600; }
-.tabs { display: flex; gap: 3px; }
-.tab { height: 36px; border: 0; background: transparent; padding: 0 13px; color: var(--dim); border-bottom: 2px solid transparent; font-size: 13px; cursor: pointer; }
-.tab:hover { color: #333; }
-.tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
+.detail-tabs { flex-shrink: 0; }
 .detail-body { min-height: 0; flex: 1; overflow: auto; padding: 16px 17px; overscroll-behavior: contain; }
 
 /* 概览 */
@@ -458,11 +454,6 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .tool-name { font-weight: 650; font-size: 12px; }
 .tool-state { margin-top: 9px; font-size: 10px; color: #188354; }
 .tool-state.off { color: #9b9fa5; }
-.source-card { border: 1px solid var(--border); border-radius: 11px; overflow: hidden; }
-.source-row { display: grid; grid-template-columns: 110px 90px minmax(0, 1fr) 70px; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11.5px; }
-.source-row:last-child { border-bottom: 0; }
-.source-row.head { background: var(--bg); color: var(--dim); font-size: 11px; }
-.source-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* SKILL.md */
 .md-wrap { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 11px; overflow: hidden; min-height: 320px; }
@@ -496,8 +487,6 @@ h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
 .usage-top { display: flex; justify-content: space-between; align-items: center; }
 .usage-tool { font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 7px; }
 .usage-version { font-size: 10px; }
-.usage-line { height: 7px; background: #eef0f3; border-radius: 5px; margin: 12px 0 8px; overflow: hidden; }
-.usage-line i { display: block; height: 100%; width: 0; background: #d3d7dc; border-radius: 5px; }
-.usage-line i.full { width: 100%; background: #4c91ef; }
+.usage-line { margin: 12px 0 8px; }
 .usage-foot { display: flex; justify-content: space-between; font-size: 10px; }
 </style>
