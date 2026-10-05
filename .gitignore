@@ -16,3 +16,4 @@ packages/ui/vite.config.mts.timestamp-*
 /walle.db
 /walle.db-*
 /objects/
+.openbitfun/
