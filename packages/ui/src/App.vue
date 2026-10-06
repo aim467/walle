@@ -38,16 +38,23 @@ const sources = ref(0);
 onMounted(async () => {
   sources.value = ((await (await fetch('/api/stats')).json()).sources as unknown[]).length;
 });
+
+// 侧栏折叠（图标模式）；状态持久化，刷新保持
+const collapsed = ref(localStorage.getItem('walle-sidebar') === 'collapsed');
+function toggleSidebar() {
+  collapsed.value = !collapsed.value;
+  localStorage.setItem('walle-sidebar', collapsed.value ? 'collapsed' : 'expanded');
+}
 </script>
 
 <template>
   <n-config-provider :theme-overrides="overrides">
     <n-message-provider>
       <div class="shell">
-        <aside class="sidebar glassbar">
+        <aside class="sidebar glassbar" :class="{ collapsed }">
           <div class="brand">
             <img class="logo-mark" :src="walleMark" alt="walle">
-            <div>
+            <div v-if="!collapsed">
               <div class="brand-name">walle</div>
               <div class="brand-sub">瓦力 · {{ sources }} 个数据源</div>
             </div>
@@ -56,13 +63,17 @@ onMounted(async () => {
             <a
               v-for="n in nav" :key="n.path" class="nav-item"
               :class="{ active: route === n.path || (n.path !== '/' && route.startsWith(n.path)) }"
-              :href="'#' + n.path"
+              :href="'#' + n.path" :title="collapsed ? n.label : undefined"
             >
               <svg viewBox="0 0 24 24" width="16" height="16"><path :d="n.icon" fill="currentColor" /></svg>
-              <span>{{ n.label }}</span>
+              <span v-if="!collapsed">{{ n.label }}</span>
             </a>
           </nav>
-          <div class="sidebar-foot dim">
+          <button class="collapse-btn" :title="collapsed ? '展开侧栏' : '折叠侧栏'" @click="toggleSidebar">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path :d="collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            <span v-if="!collapsed">折叠侧栏</span>
+          </button>
+          <div v-if="!collapsed" class="sidebar-foot dim">
             <div>纯本地 · 无遥测</div>
             <div>Phase 0-4 · UI-1</div>
           </div>
@@ -88,7 +99,12 @@ onMounted(async () => {
   width: 224px; flex-shrink: 0; position: sticky; top: 0; height: 100vh;
   display: flex; flex-direction: column; padding: 14px 10px;
   border-right: 1px solid var(--border);
+  transition: width .18s ease;
 }
+.sidebar.collapsed { width: 60px; padding-left: 8px; padding-right: 8px; }
+.sidebar.collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar.collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar.collapsed .collapse-btn { justify-content: center; padding-left: 0; padding-right: 0; }
 .brand { display: flex; gap: 10px; align-items: center; padding: 4px 8px 16px; }
 .logo-mark {
   width: 34px; height: 34px; border-radius: 9px;
@@ -107,7 +123,13 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item:hover { background: rgba(0, 0, 0, .05); }
 .nav-item.active { background: var(--accent); color: #fff; }
 .nav-item.active svg { color: #fff; }
-.sidebar-foot { margin-top: auto; padding: 10px 12px; font-size: 11px; line-height: 1.8; }
+.collapse-btn {
+  margin-top: auto; display: flex; gap: 8px; align-items: center;
+  padding: 7px 12px; border-radius: 9px; border: none; background: transparent;
+  color: var(--dim); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.collapse-btn:hover { background: rgba(0, 0, 0, .05); color: var(--text); }
+.sidebar-foot { margin-top: 6px; padding: 10px 12px; font-size: 11px; line-height: 1.8; }
 .content { flex: 1; min-width: 0; }
 main { padding: 24px 40px 56px; max-width: 1680px; margin: 0 auto; width: 100%; }
 </style>
