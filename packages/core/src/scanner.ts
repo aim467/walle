@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Adapter, RawAsset, ScanOptions, SourceScanResult } from './types.js';
+import type { Adapter, DiscoverContext, RawAsset, ScanOptions, SourceScanResult } from './types.js';
 import type { WalleStore } from './store.js';
 import type { ContentStore } from './cas.js';
 import { MAX_CONTENT_BYTES } from './cas.js';
@@ -32,6 +32,9 @@ export async function runScan(
 ): Promise<SourceScanResult[]> {
   const maxBytes = opts.maxContentBytes ?? MAX_CONTENT_BYTES;
   const results: SourceScanResult[] = [];
+  // 项目级探测线索：显式注入优先（测试隔离），否则取索引库中曾出现的项目路径。
+  // 项目点目录（如 <项目>/.workbuddy/memory）由相关适配器在 discover 内自行探测。
+  const ctx: DiscoverContext = { projectRoots: opts.projectRoots ?? store.sessionProjectPaths() };
 
   for (const adapter of adapters) {
     if (opts.sources && !opts.sources.includes(adapter.id)) continue;
@@ -65,7 +68,7 @@ export async function runScan(
     const now = new Date().toISOString();
 
     try {
-      for await (const raw of adapter.discover(root)) {
+      for await (const raw of adapter.discover(root, ctx)) {
         result.total++;
         result.byKind[raw.kind] = (result.byKind[raw.kind] ?? 0) + 1;
         const prev = existing.get(raw.path);

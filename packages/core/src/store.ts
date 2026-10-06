@@ -565,6 +565,13 @@ export class WalleStore {
     }));
   }
 
+  /** 全部出现过的项目路径（P5.2 项目级点目录探测线索）。
+   *  故意不按 active 资产过滤：线索是"曾见过的项目"，宽容保留可避免索引状态波动引起项目资产误标失踪。 */
+  sessionProjectPaths(): string[] {
+    const rows = this.db.prepare('SELECT DISTINCT project_path p FROM session_meta WHERE project_path IS NOT NULL').all() as unknown[];
+    return rows.map((r) => String(toRow(r).p)).filter(Boolean);
+  }
+
   /** 按项目聚合 token 用量（Top N；project_path 归一化掉 Windows \\?\ 前缀） */
   usageByProject(limit = 10): UsageProjectRow[] {
     const rows = this.db

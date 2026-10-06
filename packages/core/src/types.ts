@@ -28,13 +28,19 @@ export interface RawAsset {
   sensitive: boolean;
 }
 
+/** discover 上下文：扫描器在遍历资产前可用的探测线索（P5.2 项目级采集） */
+export interface DiscoverContext {
+  /** 项目根绝对路径列表（来自 session_meta.project_path 线索或显式注入），适配器用它探测项目内点目录 */
+  projectRoots: string[];
+}
+
 /** 适配器统一接口（开发文档 §4.3）。write 能力声明配合 WriteEngine 三保险使用；全局开关默认关闭。 */
 export interface Adapter {
   id: string;
   displayName: string;
   /** 探测数据目录；rootOverride 用于测试/自定义路径，不存在返回 null */
   detect(rootOverride?: string): string | null;
-  discover(root: string): AsyncIterable<RawAsset>;
+  discover(root: string, ctx?: DiscoverContext): AsyncIterable<RawAsset>;
   /**
    * 相对路径 → 绝对路径。默认 path.resolve(root, rel)。
    * 多根工具（如 opencode 配置目录、Cursor 的 AppData）用 "config:" / "appdata:" 前缀锚定外部目录。
@@ -199,6 +205,11 @@ export interface ScanOptions {
   roots?: Record<string, string>;
   /** 只扫描指定源 */
   sources?: string[];
-  /** 内容入仓上限（字节），超过只记元数据。默认 16MB */
+  /** 内容入仓上限（字节），超过只记元数据。默认 64MB */
   maxContentBytes?: number;
+  /**
+   * 项目级点目录探测线索（项目根绝对路径）。缺省由 store.sessionProjectPaths() 提供；
+   * 显式传空数组表示禁用项目级探测（测试隔离用）。
+   */
+  projectRoots?: string[];
 }

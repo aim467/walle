@@ -10,8 +10,8 @@ fixtures/**/*.sqlite
 fixtures/**/*.sqlite-*
 # UI vite 配置编译临时产物
 packages/ui/vite.config.mts.timestamp-*
-# 本机 WorkBuddy 真实数据目录
-.workbuddy-ai/
+# 本机 WorkBuddy 真实数据目录（仅仓库根；fixtures 下的同名点目录是固件，需入库）
+/.workbuddy-ai/
 # 误在仓库根运行 walle 时产生的运行时数据（正常在 ~/.walle）
 /walle.db
 /walle.db-*

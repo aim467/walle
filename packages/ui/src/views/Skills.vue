@@ -14,7 +14,7 @@ import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import agentsLogo from '../assets/logos/agents.svg';
 
-interface SkillEntry { tool: string; assetId: number; path: string; abs: string; linked: boolean; size: number; mtime: string }
+interface SkillEntry { tool: string; assetId: number; path: string; abs: string; project: boolean; linked: boolean; size: number; mtime: string }
 interface SkillGroup { key: string; name: string; description: string | null; storePath: string | null; entries: SkillEntry[] }
 
 interface ToolDef { id: string; name: string; logo?: string }
@@ -36,7 +36,7 @@ const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbu
 const skills = ref<SkillGroup[]>([]);
 const loading = ref(false);
 const q = ref('');
-const statusFilter = ref<'all' | 'store' | 'linked' | 'copy'>('all');
+const statusFilter = ref<'all' | 'store' | 'linked' | 'project' | 'copy'>('all');
 const activeTool = ref<string | null>(null);
 const sortBy = ref('name');
 const selected = ref<SkillGroup | null>(null);
@@ -45,21 +45,27 @@ const mdText = ref<string | null>(null);
 const mdLoading = ref(false);
 const message = useMessage();
 
-/** 分组状态按真实数据判定：共享库本体 > 符号链接接入 > 目录副本（不硬造"有更新/冲突"） */
-function groupStatus(g: SkillGroup): 'store' | 'linked' | 'copy' {
+/** 分组状态按真实数据判定：共享库本体 > 符号链接接入 > 项目本地 > 目录副本（不硬造"有更新/冲突"） */
+function groupStatus(g: SkillGroup): 'store' | 'linked' | 'project' | 'copy' {
   if (g.storePath) return 'store';
   if (g.entries.some((e) => e.linked)) return 'linked';
+  if (g.entries.some((e) => e.project)) return 'project';
   return 'copy';
 }
 const statusMeta = {
   store: { label: '共享库', type: 'info' },
   linked: { label: '已链接', type: 'success' },
+  project: { label: '项目本地', type: 'warning' },
   copy: { label: '目录副本', type: 'default' },
 } as const;
 
 function maxSize(g: SkillGroup): number { return g.entries.reduce((m, e) => Math.max(m, e.size ?? 0), 0); }
 function lastMtime(g: SkillGroup): string { return g.entries.reduce((m, e) => (e.mtime > m ? e.mtime : m), ''); }
-function sourceOf(g: SkillGroup): string { return g.storePath ? 'Skills 共享库' : toolName(g.entries[0]?.tool ?? ''); }
+function sourceOf(g: SkillGroup): string {
+  if (g.storePath) return 'Skills 共享库';
+  if (g.entries[0]?.project) return '项目本地目录';
+  return toolName(g.entries[0]?.tool ?? '');
+}
 /** 展示技能目录（去掉末尾的 SKILL.md 文件名） */
 function pathOf(g: SkillGroup): string {
   const p = g.storePath ?? g.entries[0]?.abs ?? '';
@@ -73,7 +79,7 @@ function groupLogo(g: SkillGroup): string | undefined {
 /** 接入工具状态：链接/目录副本为真接入；Codex 对共享库技能是原生发现（codex.exe 硬编码 .agents/skills，实测） */
 function toolState(g: SkillGroup, toolId: string): { on: boolean; label: string } {
   const e = g.entries.find((x) => x.tool === toolId);
-  if (e) return { on: true, label: e.linked ? '符号链接接入' : '目录副本' };
+  if (e) return { on: true, label: e.linked ? '符号链接接入' : e.project ? '项目本地' : '目录副本' };
   if (toolId === 'codex' && g.storePath) return { on: true, label: '原生发现' };
   return { on: false, label: '未接入' };
 }
@@ -116,6 +122,7 @@ const statusChips = computed(() => [
   { v: 'all', label: '全部', n: scoped.value.length },
   { v: 'store', label: '共享库', n: scoped.value.filter((s) => groupStatus(s) === 'store').length },
   { v: 'linked', label: '链接接入', n: scoped.value.filter((s) => groupStatus(s) === 'linked').length },
+  { v: 'project', label: '项目本地', n: scoped.value.filter((s) => groupStatus(s) === 'project').length },
   { v: 'copy', label: '目录副本', n: scoped.value.filter((s) => groupStatus(s) === 'copy').length },
 ] as const);
 
@@ -415,7 +422,7 @@ function setTab(t: typeof activeTab.value) {
 
 const entryColumns: DataTableColumns<SkillEntry> = [
   { title: '工具', key: 'tool', width: 110, render: (e) => toolName(e.tool) },
-  { title: '接入方式', key: 'linked', width: 90, render: (e) => (e.linked ? '符号链接' : '目录副本') },
+  { title: '接入方式', key: 'linked', width: 90, render: (e) => (e.linked ? '符号链接' : e.project ? '项目本地' : '目录副本') },
   { title: '路径', key: 'abs', ellipsis: { tooltip: true }, render: (e) => h('span', { class: 'mono' }, e.abs || e.path) },
   { title: '大小', key: 'size', width: 70, render: (e) => fmtSize(e.size) },
 ];

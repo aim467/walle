@@ -41,3 +41,9 @@ skills CLI（vercel-labs/skills）把技能安装到 `~/.agents/skills`，再接
 | 新建技能（写 SKILL.md） | ✅ 较安全 | 纯新增 markdown；需同步更新 lock 文件语义 |
 | 网络下载（skills CLI 协议） | ⚠️ 中 | 引入网络；需哈希校验与来源白名单 |
 | 在线修改 | ✅ 复用 P4 三保险 | SKILL.md 非会话/SQLite，可写回 |
+
+## 5. 项目级技能：`<项目>/.agents/skills/`（v1.13，2026-10-06 实测）
+
+`.agents` 不只在 home 根存在——实测 x-tools 项目目录下有项目级 `.agents/skills/`（banner-design、brand、design-system 等 7 个技能，含 SKILL.md + references/ + scripts/ 完整结构）。它是"该项目专属的技能目录"，与共享库本体、链接接入的语义均不同。
+
+采集（v1.13）：agents 适配器在 discover 内用 project-assets.ts 探测 `<项目>/.agents/skills/<name>/SKILL.md`（只收 SKILL.md，附属文件不收，与 home 根口径一致）。项目根线索来自 session_meta.project_path。技能聚合视图新增「项目本地」状态（/api/skills 的 storePath 仅授予 home 根资产，项目技能不会被误标为共享库本体）。

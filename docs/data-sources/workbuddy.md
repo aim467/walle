@@ -98,10 +98,15 @@
 - `sessions/*.json` 不收：CLI 宿主进程心跳元数据（pid/heartbeat/endpoint/version），运行时噪音。
 - UI 图标复用 workbuddy.svg，靠「国际版/国内版」文字标签区分；用量统计、技能组、会话清单天然按账户分开。
 
-真机上新版 WorkBuddy 的 home 在 `~/.workbuddy`（旧实例为 `~/.workbuddy-ai`），两者目录结构完全同构（settings/SOUL/USER/memory/skills/plugins/connectors/projects/tasks/audit-log/workbuddy.db/keyblob 全部一致）。适配器按 cursor 双根模式接入：
+（历史注：v1.11 曾把 `~/.workbuddy` 当作同账户第二实例按 home: 前缀双根接入，v1.12 澄清语义错误后整体撤销，上文即现行方案。）
 
-- `TOOL_ROOT_DEFS` 新增 `workbuddy.home` 键（env `WALLE_WORKBUDDY_HOME`，设置页可改）；第二根不存在时静默跳过。
-- 第二根资产路径统一打 `home:` 前缀（如 `home:skills/cloud-design/SKILL.md`），`resolve()` 反解到真实路径；tool id 仍为 workbuddy，UI 图标/标签自动复用。
-- 两实例同名的技能/记忆在 `/api/skills` 等聚合视图按 realpath 归组，语义为"同一资产被两个实例接入"。
-- **`sessions/*.json` 不收**：实测为 CLI 宿主进程心跳元数据（pid/heartbeat/endpoint/version），属运行时噪音。
-- 同一会话 id 在两个实例都有记录时，会话文件与两个 db 的标题经 noDocs 合并到同一资产（后合并方 null 不降级）。
+## 项目级记忆：`<项目>/.workbuddy*/memory/`（v1.13，2026-10-06 实测）
+
+WorkBuddy 除了 home 根的全局记忆，还会在**工作目录**下生成点目录存放项目记忆（每工作一个项目就写一份）：
+
+- `<项目>/.workbuddy-ai/memory/` —— 国际版项目记忆（按日日志 `YYYY-MM-DD.md` + `MEMORY.md` 长期记忆）
+- `<项目>/.workbuddy/memory/` —— 国内版项目记忆（结构同上，双账户语义与 home 根一致）
+
+实测 D:\CodingProject 下 9 个项目 7 个有此类目录；`MEMORY.md` 内容质量高（项目约定、技术决策、踩坑记录），是统一记忆视图最有价值的素材之一。
+
+**采集方案（v1.13）**：项目根线索来自 `session_meta.project_path`（walle 从会话已知用户在哪些目录工作），不做全盘扫描；project-assets.ts 在 workbuddy / workbuddy-cn 适配器的 discover 内探测各自点目录的 `memory/` 下 `.md` 文件。项目资产 path 为绝对 POSIX 路径；项目点目录与 home 根 realpath 相等时跳过（防同文件双份入库）。项目目录删除或线索消失后，重扫自动标 missing。首次安装需 scan→index→scan 两轮（线索来自上一轮索引）。项目记忆为纯 Markdown，走文件级全文索引，敏感判定交给扫描器内容级兜底。

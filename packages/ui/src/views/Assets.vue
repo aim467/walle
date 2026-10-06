@@ -22,6 +22,14 @@ const kindLabel: Record<string, string> = {
 const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库' };
 const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo };
 
+/** 项目级资产的 path 是绝对路径（v1.13 项目记忆采集，如 D:/proj/.workbuddy/memory/x.md）；记忆资产据此区分根/项目作用域 */
+function isProjectAsset(a: Asset): boolean {
+  return /^[a-zA-Z]:[/\\]/.test(a.path) || a.path.startsWith('/');
+}
+function memoryScope(a: Asset): string | null {
+  return a.kind === 'memory' ? (isProjectAsset(a) ? '项目记忆' : '根记忆') : null;
+}
+
 /** 资产类型图标（24×24 描边 path，lucide 风格；未知类型回退到「盒子」） */
 const ICON_PATHS: Record<string, string[]> = {
   all: ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M3 14h7v7H3z', 'M14 14h7v7h-7z'],
@@ -238,6 +246,7 @@ onMounted(async () => {
               <span class="arow-main">
                 <span class="arow-name" :title="assetName(a)">
                   <span class="arow-name-t">{{ assetName(a) }}</span>
+                  <span v-if="memoryScope(a)" class="scope" :class="{ proj: isProjectAsset(a) }">{{ memoryScope(a) }}</span>
                   <span v-if="a.sensitive" class="sflag">敏感</span>
                 </span>
                 <span class="arow-path mono" :title="a.path">{{ a.path }}</span>
@@ -257,6 +266,7 @@ onMounted(async () => {
             <div class="insp-title" :title="assetName(selected)">{{ assetName(selected) }}</div>
             <div class="insp-sub">
               <span>{{ kindLabel[selected.kind] ?? selected.kind }}</span>
+              <span v-if="memoryScope(selected)">{{ memoryScope(selected) }}</span>
               <span>{{ humanSize(selected.size) }}</span>
               <span>修改于 {{ fmtTime(selected.mtime) }}</span>
               <span>哈希 {{ selected.contentHash?.slice(0, 10) ?? '-' }}</span>
@@ -391,6 +401,8 @@ onMounted(async () => {
 .arow-path { font-size: 11.5px; color: var(--dim); word-break: break-all; line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .arow-size { flex-shrink: 0; font-size: 11.5px; color: var(--dim); }
 .sflag { flex-shrink: 0; font-size: 10px; font-weight: 500; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; line-height: 14px; }
+.scope { flex-shrink: 0; font-size: 10px; font-weight: 500; color: var(--dim); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; line-height: 14px; }
+.scope.proj { color: var(--accent); }
 
 /* Inspector */
 .inspector { flex: 1 1 62%; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }

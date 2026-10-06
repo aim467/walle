@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Adapter, AssetKind, RawAsset } from '@walle/core';
+import type { Adapter, DiscoverContext, RawAsset } from '@walle/core';
 import { statAsset, toRel, walkFiles } from './util.js';
 import { resolveToolRoot } from './roots.js';
+import { collectProjectAssets } from './project-assets.js';
 
 /**
  * agents 适配器（P5.2）：skills CLI 的跨工具共享技能库 ~/.agents。
@@ -27,7 +28,12 @@ export const agentsAdapter: Adapter = {
     }
   },
 
-  async *discover(root: string): AsyncIterable<RawAsset> {
+  /** 项目级技能的 path 是绝对路径，直接返回（home 根相对路径照常拼接） */
+  resolve(root: string, rel: string): string {
+    return path.isAbsolute(rel) ? rel : path.resolve(root, rel);
+  },
+
+  async *discover(root: string, ctx?: DiscoverContext): AsyncIterable<RawAsset> {
     // 1. 共享技能本体：skills/<name>/SKILL.md
     for (const f of walkFiles(root, 'skills', { ignoreDirNames: IGNORE_DIRS })) {
       if (!f.rel.endsWith('/SKILL.md') && f.rel !== 'SKILL.md') continue;
@@ -39,5 +45,8 @@ export const agentsAdapter: Adapter = {
     // 2. 安装登记：.skill-lock.json（技能来源/哈希/安装时间，聚合视图用它识别本体）
     const lock = statAsset(root, '.skill-lock.json', 'config', 'json', { name: 'skill-lock' });
     if (lock) yield lock;
+
+    // 3. 项目级技能：<项目>/.agents/skills/<name>/SKILL.md（线索来自 session_meta.project_path）
+    yield* collectProjectAssets('agents', ctx?.projectRoots ?? [], root);
   },
 };

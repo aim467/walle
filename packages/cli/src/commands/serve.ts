@@ -630,8 +630,9 @@ export async function cmdServe(rest: string[]): Promise<void> {
           }
           const g = groups.get(key) ?? { key, name: a.name ?? '', description, storePath: null, entries: [] };
           if (!g.description && description) g.description = description;
-          if (a.tool === 'agents' && !g.storePath) g.storePath = abs;
-          g.entries.push({ tool: a.tool, assetId: a.id, path: a.path, abs, linked, size: a.size ?? 0, mtime: a.mtime ?? '' });
+          // 共享库本体仅限 agents home 根资产；项目级技能（path 为绝对路径）不是本体
+          if (a.tool === 'agents' && !path.isAbsolute(a.path) && !g.storePath) g.storePath = abs;
+          g.entries.push({ tool: a.tool, assetId: a.id, path: a.path, abs, project: path.isAbsolute(a.path), linked, size: a.size ?? 0, mtime: a.mtime ?? '' });
           groups.set(key, g);
         }
         const skills = [...groups.values()].sort((x, y) => (x.storePath ? 0 : 1) - (y.storePath ? 0 : 1) || x.name.localeCompare(y.name));

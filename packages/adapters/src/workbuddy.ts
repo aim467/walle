@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Adapter, AssetKind, ParseMode, ParsedResult, RawAsset } from '@walle/core';
+import type { Adapter, AssetKind, DiscoverContext, ParseMode, ParsedResult, RawAsset } from '@walle/core';
 import { isSidecarOrLog, statAsset, toRel, walkFiles } from './util.js';
 import { resolveToolRoot } from './roots.js';
 import { parseWorkbuddyRollout, parseWorkbuddyDb } from './parse.js';
+import { collectProjectAssets } from './project-assets.js';
 
 /**
  * WorkBuddy 适配器（国际版，~/.workbuddy-ai）。格式细节见 docs/data-sources/workbuddy.md（全部实测）。
@@ -194,7 +195,14 @@ export const workbuddyAdapter: Adapter = {
     }
   },
 
-  async *discover(root: string): AsyncIterable<RawAsset> {
+  /** 项目级资产的 path 是绝对路径，直接返回（home 根相对路径照常拼接） */
+  resolve(root: string, rel: string): string {
+    return path.isAbsolute(rel) ? rel : path.resolve(root, rel);
+  },
+
+  async *discover(root: string, ctx?: DiscoverContext): AsyncIterable<RawAsset> {
     yield* walkWorkbuddyBase(root);
+    // 项目级记忆：<项目>/.workbuddy-ai/memory/*.md（线索来自 session_meta.project_path）
+    yield* collectProjectAssets('workbuddy', ctx?.projectRoots ?? [], root);
   },
 };

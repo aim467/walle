@@ -42,9 +42,9 @@ write('codex/cap_sid', 'sid-fixture');
 // 会话样本：首行 session_meta + 一条用户消息（<environment_context> 注入块形态）
 write(
   'codex/sessions/2026/07/08/rollout-2026-07-08T13-57-45-019f404d-bbb3-7eb0-a91e-ffed59995d84.jsonl',
-  JSON.stringify({ timestamp: '2026-07-08T05:57:45Z', ordinal: 0, type: 'session_meta', payload: { session_id: '019f404d', cwd: 'C:\\Users\\Administrator', cli_version: '0.156.1' } }) +
+  JSON.stringify({ timestamp: '2026-07-08T05:57:45Z', ordinal: 0, type: 'session_meta', payload: { session_id: '019f404d', cwd: 'C:\\fixture\\demo', cli_version: '0.156.1' } }) +
     '\n' +
-    JSON.stringify({ timestamp: '2026-07-08T05:57:46Z', ordinal: 1, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'text', text: '<environment_context>\n<cwd>C:\\Users\\Administrator</cwd>\n</environment_context>' }] } }) +
+    JSON.stringify({ timestamp: '2026-07-08T05:57:46Z', ordinal: 1, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'text', text: '<environment_context>\n<cwd>C:\\fixture\\demo</cwd>\n</environment_context>' }] } }) +
     '\n' +
     JSON.stringify({ timestamp: '2026-07-08T05:58:00Z', ordinal: 2, type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'fixture reply' }] } }) +
     '\n' +
@@ -304,6 +304,17 @@ INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at)
   } catch {
     /* 无特权环境跳过 */
   }
+}
+
+// ---------- project-alpha（项目级点目录样本，P5.2：工具在工作目录生成的项目记忆/技能） ----------
+// 结构对应真机实测：<项目>/.workbuddy-ai/memory、<项目>/.workbuddy/memory、<项目>/.agents/skills/<name>/
+{
+  write('project-alpha/.workbuddy-ai/memory/2026-10-01.md', '# 2026-10-01\n\n## 项目记忆：适配器接入\n\n国际版项目记忆日志 fixture-intl-mem。\n');
+  write('project-alpha/.workbuddy-ai/memory/MEMORY.md', '# 项目长期记忆\n\n国际版 MEMORY 索引 fixture-intl-index。\n');
+  write('project-alpha/.workbuddy/memory/MEMORY.md', '# 项目长期记忆\n\n国内版 MEMORY 索引 fixture-cn-index。\n');
+  write('project-alpha/.agents/skills/proj-fixer/SKILL.md', '---\nname: proj-fixer\ndescription: fixture project skill\n---\n\nproject skill body fixture-proj-skill。\n');
+  // 附属文件：项目技能目录内脚本不得成为独立资产（对齐全局 agents 适配器口径）
+  write('project-alpha/.agents/skills/proj-fixer/scripts/run.cjs', 'console.log("fixture");\n');
 }
 
 console.log(`fixtures 已生成: ${fixtures}`);

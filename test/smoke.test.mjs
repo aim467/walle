@@ -32,6 +32,9 @@ const roots = {
   workbuddy: path.join(fixtures, 'workbuddy'),
   agents: path.join(fixtures, 'agents-store'),
 };
+// 项目级探测默认禁用（线索来自 session_meta.project_path，真机索引后才启用）；
+// 需要项目级采集的测试显式传入固件项目目录，其余测试保持完全隔离。
+const scanOpts = { roots, projectRoots: [] };
 
 test('敏感工具函数', () => {
   assert.equal(looksSensitive('experimental_bearer_token = "sk-abc12345678901234567890"'), true);
@@ -42,7 +45,7 @@ test('敏感工具函数', () => {
 });
 
 test('首次扫描：两源均产出资产，凭证被标记', async () => {
-  const [r] = await runScan(adapters, store, cas, { roots });
+  const [r] = await runScan(adapters, store, cas, { ...scanOpts });
   assert.equal(r.tool, 'codex');
   assert.ok(r.total >= 8, `codex 资产数 ${r.total} 应 >= 8`);
   assert.equal(r.new, r.total);
@@ -88,7 +91,7 @@ test('codex skill 粒度：每技能一个资产，附属文件不入库', () =>
 
 test('重复扫描幂等：零新增、零更新', async () => {
   const objectsBefore = countObjects(cas);
-  const results = await runScan(adapters, store, cas, { roots });
+  const results = await runScan(adapters, store, cas, { ...scanOpts });
   for (const r of results) {
     assert.equal(r.new, 0, `${r.tool} 不应有新增`);
     assert.equal(r.updated, 0, `${r.tool} 不应有更新`);
@@ -104,7 +107,7 @@ test('扫描纠正元数据漂移：内容未变也要更新 kind/name/raw_forma
   store.db.prepare("UPDATE asset SET kind = 'other', name = 'SKILL.md', raw_format = 'text' WHERE id = ?").run(skill.id);
   assert.equal(store.listAssets({ tool: 'codex', kind: 'skill', limit: 10 }).some((a) => a.id === skill.id), false, '前置：已从 skill 列表消失');
 
-  const [r] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const [r] = await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   assert.equal(r.new, 0, '不应新增');
   assert.equal(r.updated, 1, '元数据漂移应计为 1 次更新');
 
@@ -116,7 +119,7 @@ test('扫描纠正元数据漂移：内容未变也要更新 kind/name/raw_forma
   assert.equal(fixed.contentHash, skill.contentHash, '内容未变，哈希不应变化');
 
   // 再扫一次应回到幂等
-  const [r2] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const [r2] = await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   assert.equal(r2.updated, 0, '纠正后应恢复幂等');
 });
 
@@ -129,13 +132,13 @@ test('失踪资产原样回归：内容与 mtime 均相同也应复活', async (
   const st = fs.statSync(abs);
 
   fs.rmSync(abs);
-  const [r1] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const [r1] = await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   assert.equal(r1.missing, 1, 'rules 应标记失踪');
 
   // 原样还原（模拟 git checkout / 备份还原：内容与 mtime 完全一致）
   fs.writeFileSync(abs, buf);
   fs.utimesSync(abs, st.atime, st.mtime);
-  const [r2] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const [r2] = await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   assert.equal(r2.missing, 0, '文件已回来，不应再次标记失踪');
   const back = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === rel);
   assert.ok(back, '复活后应回到 active 列表');
@@ -144,7 +147,7 @@ test('失踪资产原样回归：内容与 mtime 均相同也应复活', async (
 
 test('删除文件后扫描：标记失踪', async () => {
   fs.rmSync(path.join(fixtures, 'codex', 'cap_sid'), { force: true });
-  const [r] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const [r] = await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   assert.equal(r.missing, 1, 'cap_sid 应标记失踪');
   const missing = store.listAssets({ includeMissing: true, limit: 500 }).filter((a) => a.status === 'missing');
   assert.equal(missing.length, 1);
@@ -156,7 +159,7 @@ test('删除文件后扫描：标记失踪', async () => {
 // ---------- P2：索引 / 搜索 / 会话 ----------
 
 test('四源扫描：cursor 与 opencode 均产出资产', async () => {
-  await runScan(adapters, store, cas, { roots });
+  await runScan(adapters, store, cas, { ...scanOpts });
   const all = store.listAssets({ limit: 500 });
   assert.ok(all.some((a) => a.tool === 'cursor' && a.path === 'mcp.json'), 'cursor mcp.json 应入库');
   assert.ok(all.some((a) => a.tool === 'cursor' && a.kind === 'skill'), 'cursor skill 应入库');
@@ -165,7 +168,7 @@ test('四源扫描：cursor 与 opencode 均产出资产', async () => {
 });
 
 test('五源扫描：workbuddy 产出资产并标记凭证', async () => {
-  await runScan(adapters, store, cas, { roots });
+  await runScan(adapters, store, cas, { ...scanOpts });
   const all = store.listAssets({ limit: 1000 });
   const wb = all.filter((a) => a.tool === 'workbuddy');
   assert.ok(wb.length >= 12, `workbuddy 资产数 ${wb.length} 应 >= 12`);
@@ -419,6 +422,66 @@ test('agents 共享技能库：本体与登记文件入库', () => {
   assert.ok(lock, '.skill-lock.json 应入库');
 });
 
+// ---------- P5.2：项目级点目录采集（<项目>/.workbuddy*/memory、<项目>/.agents/skills） ----------
+
+const projectRoot = path.join(fixtures, 'project-alpha');
+const posix = (p) => p.split(path.sep).join('/');
+
+test('项目级记忆/技能：点目录按工具归属入库，path 为绝对路径', async () => {
+  await runScan(adapters, store, cas, { ...scanOpts, projectRoots: [projectRoot] });
+  const all = store.listAssets({ limit: 1000 });
+
+  const intl = all.filter((a) => a.tool === 'workbuddy' && a.kind === 'memory' && a.path.startsWith(posix(projectRoot)));
+  assert.equal(intl.length, 2, '国际版应入库 2 个项目记忆（日志 + MEMORY）');
+  assert.ok(intl.some((a) => a.path === posix(path.join(projectRoot, '.workbuddy-ai', 'memory', '2026-10-01.md'))), 'path 应为绝对 POSIX 路径');
+
+  const cn = all.find((a) => a.tool === 'workbuddy-cn' && a.kind === 'memory' && a.path === posix(path.join(projectRoot, '.workbuddy', 'memory', 'MEMORY.md')));
+  assert.ok(cn, '国内版项目记忆应入库（与国际版点目录分开）');
+
+  const skill = all.find((a) => a.tool === 'agents' && a.kind === 'skill' && a.path === posix(path.join(projectRoot, '.agents', 'skills', 'proj-fixer', 'SKILL.md')));
+  assert.ok(skill, '项目级技能应入库且归属 agents');
+  assert.equal(skill.name, 'proj-fixer', '技能名取技能目录名');
+  assert.ok(!all.some((a) => a.path.endsWith('scripts/run.cjs')), '技能附属文件不得入库');
+
+  // 幂等：同线索二次扫描不新增
+  const before = store.countAssets();
+  await runScan(adapters, store, cas, { ...scanOpts, projectRoots: [projectRoot] });
+  assert.equal(store.countAssets(), before, '二次扫描项目资产零新增');
+});
+
+test('项目级记忆入索引可检索', () => {
+  buildIndex(adapters, store, cas);
+  const hits = store.search('适配器接入', { kind: 'memory' });
+  assert.ok(hits.some((h) => h.tool === 'workbuddy' && h.path.includes('2026-10-01')), '项目记忆内容应可全文检索');
+});
+
+test('项目线索：sessionProjectPaths 取自 session_meta（fixture 为合成路径，不指真机）', () => {
+  const hints = store.sessionProjectPaths();
+  assert.ok(hints.length >= 3, `codex/zcode/opencode/workbuddy 的 cwd 应成为线索，实际 ${hints.length} 条`);
+  for (const h of hints) assert.ok(h.toLowerCase().includes('fixture'), `线索应为固件合成路径，实际 ${h}`);
+});
+
+test('项目级采集 home 防护：点目录与适配器根同一目录时不双份入库', async () => {
+  // <tmp>/.workbuddy-ai 既是 workbuddy home 根，又是 <tmp> 作为项目根时的点目录
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-proj-'));
+  try {
+    fs.mkdirSync(path.join(tmp, '.workbuddy-ai', 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.workbuddy-ai', 'memory', 'guard.md'), '# guard\n');
+    await runScan(adapters, store, cas, {
+      roots: { ...roots, workbuddy: path.join(tmp, '.workbuddy-ai') },
+      sources: ['workbuddy'],
+      projectRoots: [tmp],
+    });
+    const rows = store.listAssets({ tool: 'workbuddy', kind: 'memory', limit: 500 }).filter((a) => a.name === 'guard');
+    assert.equal(rows.length, 1, '同一文件只应有一条资产');
+    assert.equal(rows[0].path, 'memory/guard.md', 'path 应为 home 相对路径，不得出现绝对路径副本');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    // 恢复 workbuddy 源：按原根重扫，tmp 资产标失踪、fixture 资产复活、root_path 复位
+    await runScan(adapters, store, cas, { ...scanOpts, sources: ['workbuddy'] });
+  }
+});
+
 test('CAS put 合并 SQLite -wal：运行中库不丢数据', () => {
   const cas2 = new ContentStore(path.join(process.env.WALLE_HOME, 'objects2'));
   const src = path.join(fixtures, 'zcode', 'cli', 'waltest.sqlite');
@@ -440,7 +503,7 @@ test('内容变更自动留快照 + 失踪复活', async () => {
   const cfgPath = path.join(fixtures, 'codex', 'config.toml');
   const oldHash = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === 'config.toml').contentHash;
   fs.appendFileSync(cfgPath, '\n# p3 snapshot test\n');
-  const [r] = await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  const [r] = await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   assert.equal(r.updated, 1, 'config.toml 应更新 1');
   const asset = store.listAssets({ tool: 'codex', limit: 500 }).find((a) => a.path === 'config.toml');
   const snaps = store.listSnapshots(asset.id);
@@ -457,12 +520,12 @@ test('内容变更自动留快照 + 失踪复活', async () => {
 
   // 3. 误删 → 失踪 → 回归复活（不产生重复资产行）
   fs.rmSync(cfgPath);
-  await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   const missingRows = store.listAssets({ tool: 'codex', includeMissing: true, limit: 500 }).filter((a) => a.path === 'config.toml');
   assert.equal(missingRows.length, 1);
   assert.equal(missingRows[0].status, 'missing');
   fs.writeFileSync(cfgPath, 'model_provider = "custom"\nmodel = "test-model"\n\n[model_providers.custom]\nname = "test"\nbase_url = "https://example.invalid/v1"\nexperimental_bearer_token = "sk-fixture000000000000000000000000000000"\n\n# p3 snapshot test\n');
-  await runScan(adapters, store, cas, { roots, sources: ['codex'] });
+  await runScan(adapters, store, cas, { ...scanOpts, sources: ['codex'] });
   const after = store.listAssets({ tool: 'codex', includeMissing: true, limit: 500 }).filter((a) => a.path === 'config.toml');
   assert.equal(after.length, 1, '复活不应产生重复行');
   assert.equal(after[0].status, 'active', '回归资产应复活为 active');
