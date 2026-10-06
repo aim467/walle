@@ -82,6 +82,10 @@ INSERT INTO threads (title, cwd, model, tokens_used, created_at, updated_at) VAL
   db.exec('CREATE TABLE stage1_outputs (thread_id TEXT, raw_memory TEXT, generated_at TEXT);');
   db.close();
 }
+// codex 记忆本体：config.toml 开启记忆功能后写入 memories/ 目录的 md 文件
+// （memories_*.sqlite 只是管线内部暂存库，kind=other）
+write('codex/memories/MEMORY.md', '# Codex Memory\n\n- 用户偏好简体中文交流\n');
+write('codex/memories/archive/2026-07.md', '# 归档\n\n- 2026-07 完成旧项目迁移\n');
 
 // ---------- zcode ----------
 {

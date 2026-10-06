@@ -70,6 +70,14 @@ test('首次扫描：两源均产出资产，凭证被标记', async () => {
 
   const mem = all.find((a) => a.kind === 'memory' && a.tool === 'zcode');
   assert.ok(mem, 'zcode 记忆文件应入库');
+
+  // codex 记忆本体在 memories/ 目录（md）；memories_*.sqlite 是管线内部库，不得算记忆
+  const codexMem = all.filter((a) => a.kind === 'memory' && a.tool === 'codex');
+  assert.ok(codexMem.some((a) => a.path === 'memories/MEMORY.md'), 'codex memories/MEMORY.md 应入库为记忆');
+  assert.ok(codexMem.some((a) => a.path === 'memories/archive/2026-07.md'), 'memories 子目录应递归采集');
+  const memSqlite = all.find((a) => a.path === 'memories_1.sqlite');
+  assert.ok(memSqlite, 'memories_1.sqlite 应入库');
+  assert.equal(memSqlite.kind, 'other', 'memories_*.sqlite 是管线内部库，kind 应为 other');
 });
 
 test('codex skill 粒度：每技能一个资产，附属文件不入库', () => {

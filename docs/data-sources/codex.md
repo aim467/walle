@@ -21,7 +21,8 @@
 | `sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl` | session | JSONL | 每会话一文件 | 会话主存储，本机 40 个，详见 §2.1 |
 | `state_5.sqlite` | other | SQLite | 高 | 会话元数据库（threads 表 40 行，含 title/cwd/model/tokens_used/first_user_message 等 40+ 列）+ projects 表。**注意版本号在文件名里**（`_5`），大版本升级会换文件名 |
 | `thread_history_1.sqlite` | other | SQLite | 高 | 会话内容投影缓存（thread_items 1111 行，item_json），含增量位点表（projection_state） |
-| `memories_1.sqlite` | memory | SQLite | 中 | 记忆库：`stage1_outputs`（thread_id, raw_memory, rollout_summary…）+ jobs 队列。**本机 0 行**（记忆管线未产出），读取需容忍空库 |
+| `memories_1.sqlite` | other | SQLite | 中 | **记忆管线的内部暂存/任务队列库**（`stage1_outputs` + `jobs` + `consolidation_progress`），不是记忆本体——2026-10-06 修正（曾误标 memory）。本机 0 行（config.toml 未开启记忆功能），读取需容忍空库 |
+| `memories/**.<name>.md` | memory | Markdown | 高 | **记忆本体**：仅当 config.toml 开启记忆功能后，Codex 把用户记忆写入 `memories/` 目录（本机未开启故目录不存在）；适配器递归采集 md 文件，未开启时自然不产出资产 |
 | `goals_1.sqlite` | other | SQLite | 低 | thread_goals（本机 0 行） |
 | `queue_1.sqlite` / `logs_2.sqlite` | other | SQLite | 极高 | 内部队列 / 日志库。**logs_2.sqlite 高达 117MB 且 WAL 活跃写入** |
 | `skills/<name>/SKILL.md` | skill | Markdown | 低 | 系统技能在 `skills/.system/<name>/` 下（多一层）。**每个技能目录只收 `SKILL.md` 一个资产**，附属 `scripts/`、`references/`、`assets/`、`agents/`、`LICENSE.txt` 与 `skills/.system/.codex-system-skills.marker` 不入资产库；技能名取 `SKILL.md` 的父目录名（对齐 cursor/workbuddy 粒度） |

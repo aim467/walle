@@ -23,9 +23,9 @@ const ROOT_FILES: { file: string; kind: AssetKind; name?: string }[] = [
   { file: 'installation_id', kind: 'other' },
 ];
 
-/** 根目录 SQLite 库：前缀 -> kind（memories 是记忆，其余为内部库） */
+/** 根目录 SQLite 库：前缀 -> kind（全部为内部库；memories_* 是记忆管线的暂存/任务队列，记忆本体在 memories/ 目录） */
 const SQLITE_PREFIX_KINDS: [RegExp, AssetKind][] = [
-  [/^memories_\d+\.sqlite$/, 'memory'],
+  [/^memories_\d+\.sqlite$/, 'other'],
   [/^state_\d+\.sqlite$/, 'other'],
   [/^thread_history_\d+\.sqlite$/, 'other'],
   [/^goals_\d+\.sqlite$/, 'other'],
@@ -110,6 +110,14 @@ export const codexAdapter: Adapter = {
     for (const f of walkFiles(root, 'rules', { ignoreDirNames: IGNORE_DIRS })) {
       if (isSidecarOrLog(path.basename(f.abs))) continue;
       const a = statAsset(root, toRel(root, f.abs), 'rule', 'text', { name: path.basename(f.abs) });
+      if (a) yield a;
+    }
+    // 6. memories：记忆功能在 config.toml 开启后，Codex 把用户记忆写入 memories/ 目录（md 文件）；
+    //    memories_*.sqlite 只是管线的内部暂存/任务队列库，不是记忆本体。目录不存在（未开启）时不产出资产。
+    for (const f of walkFiles(root, 'memories', { ignoreDirNames: IGNORE_DIRS })) {
+      if (isSidecarOrLog(path.basename(f.abs))) continue;
+      const ffmt = f.rel.endsWith('.md') ? 'markdown' : 'text';
+      const a = statAsset(root, toRel(root, f.abs), 'memory', ffmt, { name: path.basename(f.rel).replace(/\.(md|txt)$/i, '') });
       if (a) yield a;
     }
   },
