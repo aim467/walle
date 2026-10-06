@@ -7,6 +7,7 @@ import { cmdSessions } from './commands/sessions.js';
 import { cmdRead } from './commands/read.js';
 import { cmdIndex } from './commands/index.js';
 import { cmdServe } from './commands/serve.js';
+import { cmdMcp } from './commands/mcp.js';
 import { cmdSnap, cmdDiff } from './commands/snapdiff.js';
 import { cmdBackup, cmdRestore, cmdRecover } from './commands/backup.js';
 import { cmdWatch } from './commands/watch.js';
@@ -53,6 +54,7 @@ const HELP = `walle（瓦力）— 本地 AI 资产管理工具 v${VERSION}
     --interval <秒> 间隔（默认 300）   --once 只跑一次
   serve             启动本地 Web UI（http://127.0.0.1:4173）
     --port <n>      指定端口
+  mcp               只读 MCP server（stdio）——向 AI 工具暴露记忆/技能检索
   help              显示本帮助
 
 数据落盘: ~/.walle/（可用 WALLE_HOME 环境变量重定向）
@@ -123,6 +125,9 @@ async function main(): Promise<void> {
       break;
     case 'serve':
       await cmdServe(rest);
+      break;
+    case 'mcp':
+      await cmdMcp(rest);
       break;
     default:
       console.error(`未知命令: ${cmd}\n`);
