@@ -9,6 +9,7 @@ import type { ZipEntry } from '@walle/core';
 import { adapters, resolveToolRoot, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
 import { parseSkillSource, fetchZipBytes, discoverSkillsFromZip, installSkillsFromZip, installSkillHubZip, searchSkillHub, extractDescription } from '../skills-import.js';
+import { llmStatus, validateLlmInput, chatCompletion, buildDistillPrompt } from '../llm.js';
 import type { LinkTarget, InstallResult } from '../skills-import.js';
 
 /** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
@@ -338,6 +339,121 @@ export async function cmdServe(rest: string[]): Promise<void> {
             const engine = new WriteEngine(store, cas, adapters);
             const result = engine.write(Number(assetId), Buffer.from(String(content), 'utf8'), { force: !!force });
             json(res, result);
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
+        });
+        return;
+      }
+      if (url.pathname === '/api/llm' && req.method === 'GET') {
+        // 大模型配置状态：apiKey 只回脱敏形态，永不完整回显
+        json(res, llmStatus());
+        return;
+      }
+      if (url.pathname === '/api/llm' && req.method === 'POST') {
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 64 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          try {
+            const input = JSON.parse(body) as { baseUrl?: string; apiKey?: string; model?: string };
+            const v = validateLlmInput(input);
+            if ('error' in v) { json(res, { ok: false, error: v.error }); return; }
+            const cfg = readWalleConfig();
+            // apiKey 留空 = 保留原值（避免编辑其他字段时把 key 抹掉）
+            cfg.llm = { ...v.cfg, apiKey: v.cfg.apiKey || cfg.llm?.apiKey || '' };
+            writeWalleConfig(cfg);
+            json(res, { ok: true, status: llmStatus() });
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
+        });
+        return;
+      }
+      if (url.pathname === '/api/llm/summarize' && req.method === 'POST') {
+        // 提炼 AI 生成：圈选的 user/assistant 消息（按 seq）→ LLM 蒸馏为知识卡片 Markdown
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 1024 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const status = llmStatus();
+            if (!status.configured) { json(res, { ok: false, error: '未配置大模型（设置页填写 OpenAI 兼容接口）' }); return; }
+            const { assetId, subId, seqs } = JSON.parse(body) as { assetId: number; subId?: string; seqs: number[] };
+            if (!Array.isArray(seqs) || !seqs.length) { json(res, { ok: false, error: '未圈选任何消息' }); return; }
+            const asset = store.getAssetById(Number(assetId));
+            if (!asset) { json(res, { error: 'asset not found' }); return; }
+            const adapter = adapters.find((a) => a.id === asset.tool);
+            if (!adapter?.parse || !asset.contentHash || !cas.has(asset.contentHash)) {
+              json(res, { ok: false, error: '该会话无可用文本' });
+              return;
+            }
+            const result = adapter.parse(cas.pathFor(asset.contentHash), { kind: asset.kind, path: asset.path, tool: asset.tool, name: asset.name ?? undefined }, 'read');
+            if (!result) { json(res, { ok: false, error: '该会话无可用文本' }); return; }
+            const wanted = subId ?? result.sessions[0]?.subId;
+            const seqSet = new Set(seqs.map(Number));
+            const turns = result.docs
+              .filter((d) => d.docType !== 'session_title' && (d.role === 'user' || d.role === 'assistant'))
+              .filter((d) => (!wanted || !d.subId || d.subId === wanted) && seqSet.has(d.seq))
+              .sort((a, b) => a.seq - b.seq)
+              .map((d) => ({ role: d.role as string, text: d.text }));
+            if (!turns.length) { json(res, { ok: false, error: '圈选的消息不含对话正文' }); return; }
+            const sessMeta = store.listSessions({ tool: asset.tool, limit: 1000 });
+            const metaRow = sessMeta.find((sm) => sm.assetId === asset.id && (!subId || sm.subId === subId));
+            const cfg = readWalleConfig().llm!;
+            const text = await chatCompletion(cfg, buildDistillPrompt(turns, metaRow?.title ?? null));
+            json(res, { ok: true, text });
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
+        });
+        return;
+      }
+      if (url.pathname === '/api/knowledge' && req.method === 'POST') {
+        // 创建知识卡片/总结文档（P5.2 提炼流程）：落盘 ~/.walle/knowledge/*.md，重扫 walle 源入库。
+        // 写的是 walle 自管目录而非用户工具文件，不要求 allowWrite；sameOrigin 照常校验
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 2 * 1024 * 1024) req.destroy(); // 2MB 上限
+        });
+        req.on('end', async () => {
+          try {
+            const { title, tags, text, source } = JSON.parse(body) as {
+              title: string; tags?: string[]; text: string;
+              source?: { tool?: string; assetId?: number; subId?: string; sessionTitle?: string };
+            };
+            const t = String(title ?? '').trim();
+            const content = String(text ?? '').trim();
+            if (!t || !content) { json(res, { ok: false, error: '标题与内容不能为空' }); return; }
+            const dir = resolveToolRoot('walle.knowledge');
+            fs.mkdirSync(dir, { recursive: true });
+            const slug = t.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'note';
+            const file = `${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}-${slug}.md`;
+            const fm = [
+              '---',
+              `title: ${t}`,
+              tags?.length ? `tags: [${tags.map((x) => String(x).replace(/[\]\[\s,]/g, '')).filter(Boolean).join(', ')}]` : null,
+              source?.tool ? `source_tool: ${source.tool}` : null,
+              source?.assetId ? `source_asset: ${source.assetId}` : null,
+              source?.subId ? `source_sub: ${source.subId}` : null,
+              source?.sessionTitle ? `source_title: ${String(source.sessionTitle).replace(/\n/g, ' ').slice(0, 120)}` : null,
+              `created: ${new Date().toISOString()}`,
+              '---',
+              '',
+            ].filter((l) => l !== null).join('\n');
+            fs.writeFileSync(path.join(dir, file), fm + content + '\n', 'utf8');
+            // 立即重扫 walle 源入库，UI/mcp 马上可见
+            let scanError: string | null = null;
+            try { await runScan(adapters, store, cas, { sources: ['walle'] }); } catch (err) { scanError = (err as Error).message; }
+            json(res, { ok: true, file, scanError });
           } catch (err) {
             json(res, { ok: false, error: (err as Error).message });
           }

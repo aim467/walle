@@ -80,6 +80,39 @@ async function save() {
 
 function resetOne(key: string) { edit.value[key] = ''; }
 
+// ---------- 大模型配置（OpenAI 兼容接口） ----------
+interface LlmStatus { configured: boolean; baseUrl: string; model: string; apiKeyMasked: string }
+const llm = ref<LlmStatus | null>(null);
+const llmEdit = ref<{ baseUrl: string; apiKey: string; model: string }>({ baseUrl: '', apiKey: '', model: '' });
+const llmSaving = ref(false);
+
+async function loadLlm() {
+  llm.value = await (await fetch('/api/llm')).json();
+  llmEdit.value = { baseUrl: llm.value.baseUrl, apiKey: '', model: llm.value.model };
+}
+
+async function saveLlm() {
+  llmSaving.value = true;
+  try {
+    const d = await (await fetch('/api/llm', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(llmEdit.value),
+    })).json();
+    if (d.ok) {
+      llm.value = d.status;
+      llmEdit.value = { baseUrl: d.status.baseUrl, apiKey: '', model: d.status.model };
+      message.success('大模型配置已保存，提炼可用 AI 生成');
+    } else {
+      message.error(d.error ?? '保存失败');
+    }
+  } finally {
+    llmSaving.value = false;
+  }
+}
+
+onMounted(loadLlm);
+
 async function rescanNow() {
   if (rescanning.value) return;
   rescanning.value = true;
@@ -142,6 +175,46 @@ async function rescanNow() {
     </div>
   </n-card>
 
+  <!-- 大模型配置（OpenAI 兼容） -->
+  <n-card size="small" class="tool-card">
+    <template #header>
+      <div class="tool-head">
+        <strong>大模型（提炼用 · OpenAI 兼容接口）</strong>
+        <n-tag v-if="llm" size="tiny" :bordered="false" round :type="llm.configured ? 'success' : 'warning'">
+          {{ llm.configured ? '已配置' : '未配置（提炼为纯手动模式）' }}
+        </n-tag>
+      </div>
+    </template>
+    <div v-if="llm" class="llm-grid">
+      <div class="root-row">
+        <div class="root-info">
+          <div class="root-label">Base URL</div>
+          <div class="dim small">OpenAI 兼容地址，如 http://127.0.0.1:11434/v1（Ollama）或 https://api.deepseek.com/v1</div>
+        </div>
+        <n-input v-model:value="llmEdit.baseUrl" placeholder="https://api.deepseek.com/v1" clearable />
+      </div>
+      <div class="root-row">
+        <div class="root-info">
+          <div class="root-label">API Key</div>
+          <div class="dim small">
+            {{ llm.apiKeyMasked ? `已保存：${llm.apiKeyMasked}（留空即保留原值）` : '本地 Ollama 可留空' }}
+          </div>
+        </div>
+        <n-input v-model:value="llmEdit.apiKey" type="password" show-password-on="click" placeholder="sk-…" clearable />
+      </div>
+      <div class="root-row">
+        <div class="root-info">
+          <div class="root-label">模型名</div>
+          <div class="dim small">如 qwen3:8b（Ollama）/ deepseek-chat / gpt-4o-mini</div>
+        </div>
+        <n-input v-model:value="llmEdit.model" placeholder="qwen3:8b" clearable />
+      </div>
+    </div>
+    <div class="llm-act">
+      <n-button size="small" type="primary" :loading="llmSaving" :disabled="!llmEdit.baseUrl.trim() || !llmEdit.model.trim()" @click="saveLlm">保存大模型配置</n-button>
+    </div>
+  </n-card>
+
   <div v-if="data" class="dim small" style="margin-top:12px">
     清空输入框即恢复默认路径。路径不存在的工具在扫描时会被跳过（与未安装一致）。修改路径保存后需重新扫描才会生效。
   </div>
@@ -158,4 +231,6 @@ async function rescanNow() {
 .root-info { flex: 1; min-width: 0; }
 .root-label { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .root-row .n-input { width: 380px; flex-shrink: 0; }
+.llm-grid .root-row .n-input { width: 380px; }
+.llm-act { padding-top: 6px; }
 </style>

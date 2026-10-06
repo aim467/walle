@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue';
-import { NInput, NEmpty, NTag, NButton, NSelect } from 'naive-ui';
+import { NInput, NEmpty, NTag, NButton, NSelect, NCheckbox, NCheckboxGroup, useMessage } from 'naive-ui';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -226,6 +226,89 @@ function currentAssetId(): number {
   const cur = listFiltered.value.find((h) => h.title === readMeta.value?.title) ?? hits.value[0];
   return cur ? cur.assetId : 0;
 }
+
+// ---------- 会话提炼（P5.2）：圈选消息 → 生成知识卡片 ----------
+const message = useMessage();
+const distillOpen = ref(false);
+const distillSel = ref<number[]>([]);
+const distillTitle = ref('');
+const distillTags = ref('');
+const distillBody = ref('');
+const distillSaving = ref(false);
+const distillSource = ref<{ assetId: number; subId: string; tool: string; title: string | null } | null>(null);
+/** 提炼素材：只取 user/assistant 双角色正文（口径与未来 LLM 蒸馏一致） */
+const distillMsgs = computed(() => msgs.value.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.text.trim()));
+
+function openDistill() {
+  if (!readMeta.value) return;
+  const [aid, sub] = curKey.value.split('|');
+  distillSource.value = { assetId: Number(aid) || currentAssetId(), subId: sub ?? '', tool: readMeta.value.tool, title: readMeta.value.title };
+  const list = distillMsgs.value;
+  // 默认圈选：第一条用户消息 + 最后一条助手消息（会话的核心问答），可增删
+  const firstUser = list.find((m) => m.role === 'user');
+  const lastAsst = [...list].reverse().find((m) => m.role === 'assistant');
+  distillSel.value = [firstUser?.seq, lastAsst?.seq].filter((s): s is number => s != null && list.some((m) => m.seq === s));
+  distillTitle.value = (readMeta.value.title ?? '') + ' · 提炼';
+  distillTags.value = '';
+  prefillBody();
+  distillOpen.value = true;
+  void loadLlmStatus();
+}
+function onDistillSelChange(v: number[]) {
+  distillSel.value = v;
+  prefillBody();
+}
+/** 用圈选的消息生成正文预填（每条截 2000 字符） */
+function prefillBody() {
+  const picked = distillMsgs.value.filter((m) => distillSel.value.includes(m.seq));
+  distillBody.value = picked
+    .map((m) => `**${m.role === 'user' ? '用户' : '助手'}：**\n\n${m.text.length > 2000 ? m.text.slice(0, 2000) + '\n…（截断）' : m.text}`)
+    .join('\n\n---\n\n');
+}
+// 大模型（OpenAI 兼容）配置状态：弹窗打开时查询，决定显示 AI 生成按钮还是手动提示
+const llmConfigured = ref(false);
+const llmGenerating = ref(false);
+async function loadLlmStatus() {
+  try { llmConfigured.value = (await (await fetch('/api/llm')).json()).configured; } catch { llmConfigured.value = false; }
+}
+async function aiSummarize() {
+  if (!distillSource.value || llmGenerating.value) return;
+  llmGenerating.value = true;
+  try {
+    const r = await (await fetch('/api/llm/summarize', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assetId: distillSource.value.assetId, subId: distillSource.value.subId, seqs: distillSel.value }),
+    })).json();
+    if (r.ok) distillBody.value = r.text;
+    else message.error(r.error ?? '生成失败');
+  } finally {
+    llmGenerating.value = false;
+  }
+}
+
+async function saveDistill() {
+  if (!distillSource.value || !distillTitle.value.trim() || !distillBody.value.trim()) return;
+  distillSaving.value = true;
+  try {
+    const r = await (await fetch('/api/knowledge', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: distillTitle.value, tags: distillTags.value.split(',').map((s) => s.trim()).filter(Boolean), text: distillBody.value,
+        source: { tool: distillSource.value.tool, assetId: distillSource.value.assetId, subId: distillSource.value.subId, sessionTitle: distillSource.value.title },
+      }),
+    })).json();
+    if (r.ok) {
+      distillOpen.value = false;
+      message.success('已存入知识库');
+    } else {
+      message.error('保存失败: ' + (r.error || ''));
+    }
+  } finally {
+    distillSaving.value = false;
+  }
+}
 function fmtDate(iso: string | null): string { return iso ? iso.slice(0, 10) : ''; }
 function fmtHM(iso: string | null): string { return iso ? iso.slice(11, 16) : ''; }
 function fmtFull(iso: string | null): string { return iso ? iso.replace('T', ' ').slice(0, 19) : '-'; }
@@ -329,9 +412,9 @@ onMounted(async () => {
               <n-tag v-if="readMeta.meta?.startedAt" size="tiny" :bordered="false" round>{{ fmtFull(readMeta.meta.startedAt) }}</n-tag>
             </div>
             <div class="d-actions">
+              <n-button size="tiny" round type="primary" secondary @click="openDistill" title="把该会话提炼为知识卡片">✦ 提炼</n-button>
               <n-button size="tiny" round quaternary title="复制标题">⧉</n-button>
               <n-button size="tiny" round quaternary title="回到顶部">↑</n-button>
-              <n-button size="tiny" round quaternary title="更多">…</n-button>
             </div>
           </div>
           <div class="d-tabs glassbar">
@@ -490,6 +573,32 @@ onMounted(async () => {
         <n-empty v-else description="从左侧选择一个会话" style="margin:auto" />
       </div>
     </div>
+
+    <!-- 提炼弹窗：圈选 user/assistant 消息 → 预填知识卡片 -->
+    <div v-if="distillOpen" class="modal-mask" @click.self="distillOpen = false">
+      <div class="modal card">
+        <div class="insp-title">提炼为知识卡片</div>
+        <div class="dim small" style="margin-top:4px">只圈选用户的文本与助手的正文（不含工具调用与系统注入）。勾选变化会重新生成正文预填，可在正文里继续手工编辑。</div>
+        <n-checkbox-group :value="distillSel" @update:value="onDistillSelChange">
+          <div class="distill-list">
+            <label v-for="m in distillMsgs" :key="m.seq" class="distill-item">
+              <n-checkbox :value="m.seq" />
+              <n-tag size="tiny" :bordered="false" round :type="m.role === 'user' ? 'info' : 'default'">{{ m.role === 'user' ? '用户' : '助手' }}</n-tag>
+              <span class="distill-text">{{ m.text.replace(/s+/g, ' ').slice(0, 180) }}</span>
+            </label>
+          </div>
+        </n-checkbox-group>
+        <n-input v-model:value="distillTitle" placeholder="卡片标题" size="small" round style="margin-top:12px" />
+        <n-input v-model:value="distillTags" placeholder="标签（逗号分隔）" size="small" round style="margin-top:8px" />
+        <n-input v-model:value="distillBody" type="textarea" placeholder="正文（Markdown）" :autosize="{ minRows: 6, maxRows: 14 }" style="margin-top:8px" />
+        <div class="dim small" style="margin-top:8px" v-if="!llmConfigured">未配置大模型（设置页可配 OpenAI 兼容接口）——当前为手动提炼模式，直接编辑上方正文即可。</div>
+        <div class="modal-act">
+          <n-button v-if="llmConfigured" size="tiny" round type="info" secondary :loading="llmGenerating" :disabled="!distillSel.length" @click="aiSummarize">✦ AI 生成摘要</n-button>
+          <n-button size="tiny" round @click="distillOpen = false">取消</n-button>
+          <n-button size="tiny" round type="primary" :loading="distillSaving" :disabled="!distillSel.length || !distillTitle.trim()" @click="saveDistill">存入知识库</n-button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -632,4 +741,11 @@ onMounted(async () => {
 .usage-block { margin-top: 14px; }
 .ub-head { margin-bottom: 6px; }
 .usage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+.modal-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, .3); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { width: 720px; max-width: 94vw; max-height: 86vh; overflow: auto; padding: 16px 20px; }
+.modal-act { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.distill-list { max-height: 300px; overflow-y: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 4px; overscroll-behavior: contain; }
+.distill-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.distill-item:hover { background: var(--bg); }
+.distill-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--text); }
 </style>

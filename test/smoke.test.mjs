@@ -20,6 +20,8 @@ process.env.WALLE_CURSOR_APPDATA = path.join(fixtures, 'cursor-appdata');
 process.env.WALLE_OPENCODE_DATA = path.join(fixtures, 'opencode-data');
 // workbuddy 国内版根重定向到固件，绝不读取真机 ~/.workbuddy
 process.env.WALLE_WORKBUDDY_CN = path.join(fixtures, 'workbuddy-home');
+// walle 知识库源指向固件，绝不读真实 ~/.walle/knowledge
+process.env.WALLE_KNOWLEDGE = path.join(fixtures, 'knowledge');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));

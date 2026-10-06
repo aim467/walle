@@ -82,6 +82,20 @@ INSERT INTO threads (title, cwd, model, tokens_used, created_at, updated_at) VAL
   db.exec('CREATE TABLE stage1_outputs (thread_id TEXT, raw_memory TEXT, generated_at TEXT);');
   db.close();
 }
+// walle 知识库卡片（~/.walle/knowledge 的自管资产，经 WALLE_KNOWLEDGE 指向固件）
+write('knowledge/session-bugfix.md', `---
+title: 会话提炼测试卡片
+tags: [test, distill]
+source_tool: zcode
+source_asset: 1
+created: 2026-10-06T00:00:00Z
+---
+
+# 结论
+
+- 会话提炼用 knowledge kind 存储为 walle 自管资产
+`);
+
 // codex 记忆本体：config.toml 开启记忆功能后写入 memories/ 目录的 md 文件
 // （memories_*.sqlite 只是管线内部暂存库，kind=other）
 write('codex/memories/MEMORY.md', '# Codex Memory\n\n- 用户偏好简体中文交流\n');

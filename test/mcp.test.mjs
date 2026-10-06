@@ -17,6 +17,7 @@ process.env.WALLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-mcp-'));
 process.env.WALLE_CURSOR_APPDATA = path.join(fixtures, 'cursor-appdata');
 process.env.WALLE_OPENCODE_DATA = path.join(fixtures, 'opencode-data');
 process.env.WALLE_WORKBUDDY_CN = path.join(fixtures, 'workbuddy-home');
+process.env.WALLE_KNOWLEDGE = path.join(fixtures, 'knowledge');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));
@@ -63,7 +64,7 @@ test('协议：initialize 握手、未知方法报错、通知无响应', async 
 test('tools/list：五个只读工具，均无写入能力', async () => {
   const r = await rpc('tools/list', {});
   const names = r.result.tools.map((t) => t.name);
-  assert.deepEqual(names, ['list_memories', 'read_memory', 'search_memory', 'search_skills', 'read_skill']);
+  assert.deepEqual(names, ['list_memories', 'read_memory', 'search_memory', 'search_skills', 'read_skill', 'search_knowledge', 'read_knowledge']);
   assert.ok(r.result.tools.every((t) => t.inputSchema.type === 'object'), '工具应带 inputSchema');
 });
 
@@ -106,4 +107,22 @@ test('search_memory / search_skills：全文检索 + read_skill', async () => {
 
   const empty = await toolText('search_memory', { query: '绝不存在的词汇组合xyzq' });
   assert.ok(empty.includes('没有匹配'), '无命中应如实说明');
+});
+
+test('search_knowledge / read_knowledge：知识库检索与读取', async () => {
+  const assets = store.listAssets({ kind: 'knowledge', limit: 10 });
+  assert.ok(assets.length >= 1, 'WALLE_KNOWLEDGE 固件卡片应入库');
+  assert.equal(assets[0].tool, 'walle', '知识卡片归属 walle 源');
+
+  const text = await toolText('read_knowledge', { assetId: assets[0].id });
+  assert.ok(text.includes('knowledge kind'), '应读回卡片正文');
+
+  const hits = await toolText('search_knowledge', { query: '提炼' });
+  assert.ok(hits.includes('#'), '知识检索应返回结果');
+
+  const all = await toolText('search_knowledge', {});
+  assert.ok(all.includes('[知识]'), '空 query 应列出全部条目');
+
+  const wrong = await rpc('tools/call', { name: 'read_memory', arguments: { assetId: assets[0].id } });
+  assert.equal(wrong.result.isError, true, 'read_memory 读知识卡片应报 kind 不符');
 });

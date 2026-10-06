@@ -10,6 +10,18 @@ export interface WalleConfig {
   /** 各 AI 工具数据源路径覆盖：key 见 @walle/adapters 的 TOOL_ROOT_DEFS（如 codex / cursor.appdata），
    *  值为绝对路径；未配置时适配器回退默认路径。改动后需重新 scan 才会生效。 */
   toolPaths?: Record<string, string>;
+  /** 大模型配置（OpenAI 兼容接口：Ollama /v1、DeepSeek、OpenAI 等均可）。未配置时提炼为纯手动模式 */
+  llm?: LlmConfig;
+}
+
+/** 大模型配置（OpenAI 兼容）。apiKey 属敏感凭证：展示层一律脱敏，永不完整回显 */
+export interface LlmConfig {
+  /** 接口基础地址，如 https://api.deepseek.com/v1 或 http://127.0.0.1:11434/v1（Ollama） */
+  baseUrl?: string;
+  /** API Key */
+  apiKey?: string;
+  /** 模型名，如 qwen3:8b / deepseek-chat */
+  model?: string;
 }
 
 /** 读取某工具路径覆盖（未配置返回 undefined） */

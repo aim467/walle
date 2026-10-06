@@ -7,6 +7,7 @@ import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import agentsLogo from '../assets/logos/agents.svg';
+import walleMark from '../assets/walle-mark.svg';
 
 interface Asset {
   id: number; tool: string; kind: string; name: string | null; path: string;
@@ -16,11 +17,11 @@ interface Asset {
 interface Snapshot { id: number; capturedAt: string; contentHash: string; size: number | null }
 
 const kindLabel: Record<string, string> = {
-  config: '配置', memory: '记忆', skill: 'Skill', mcp: 'MCP', rule: '规则',
+  config: '配置', memory: '记忆', skill: 'Skill', knowledge: '知识', mcp: 'MCP', rule: '规则',
   agent: '子代理', plugin: '插件', secret: '凭证', other: '其他',
 };
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo };
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: '知识库' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark };
 
 /** 项目级资产的 path 是绝对路径（v1.13 项目记忆采集，如 D:/proj/.workbuddy/memory/x.md）；记忆资产据此区分根/项目作用域 */
 function isProjectAsset(a: Asset): boolean {
@@ -41,6 +42,7 @@ const ICON_PATHS: Record<string, string[]> = {
   mcp: ['M12 22v-5', 'M9 8V2', 'M15 8V2', 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z'],
   agent: ['M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2', 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z'],
   plugin: ['M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z'],
+  knowledge: ['M4 19.5A2.5 2.5 0 0 1 6.5 17H20', 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'],
   other: ['M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z', 'M3.3 7l8.7 5 8.7-5', 'M12 22V12'],
 };
 const kindIcon = (k: string): string[] => ICON_PATHS[k] ?? ICON_PATHS.other;
@@ -49,9 +51,9 @@ const EXCLUDED_KINDS = new Set(['session', 'prompt']);
 /** ZCode 模型 I/O 遥测也属会话数据（kind=other），一并移交会话页 */
 const isSessionAsset = (a: Asset) => EXCLUDED_KINDS.has(a.kind) || a.path.includes('model-io-');
 
-const TOOLS = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'agents'];
+const TOOLS = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'agents', 'walle'];
 /** 资产类型的固定展示顺序（只渲染实际存在的类型） */
-const KIND_ORDER = ['skill', 'config', 'memory', 'rule', 'secret', 'mcp', 'agent', 'plugin', 'other'];
+const KIND_ORDER = ['skill', 'knowledge', 'config', 'memory', 'rule', 'secret', 'mcp', 'agent', 'plugin', 'other'];
 const sortOptions = [
   { label: '名称', value: 'name' },
   { label: '大小', value: 'size' },

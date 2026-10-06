@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { getToolPathOverride } from '@walle/core';
+import { getToolPathOverride, walleHome } from '@walle/core';
 
 /**
  * 各 AI 工具数据源根路径的统一定义与解析。
@@ -45,6 +45,10 @@ export const TOOL_ROOT_DEFS: ToolRootDef[] = [
   {
     key: 'agents', tool: 'agents', label: '技能共享库（~/.agents）', env: 'WALLE_AGENTS',
     default: () => path.join(os.homedir(), '.agents'),
+  },
+  {
+    key: 'walle.knowledge', tool: 'walle', label: '知识库（~/.walle/knowledge）', env: 'WALLE_KNOWLEDGE',
+    default: () => path.join(walleHome(), 'knowledge'),
   },
 ];
 

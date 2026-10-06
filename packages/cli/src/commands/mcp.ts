@@ -81,6 +81,26 @@ const TOOLS = [
       required: ['assetId'],
     },
   },
+  {
+    name: 'search_knowledge',
+    description: '检索 walle 知识库——从会话提炼的知识卡片与总结文档（含来源会话信息，支持中文全文检索）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '检索关键词；留空返回全部条目' },
+        limit: { type: 'number', description: '最多返回条数（默认 10）' },
+      },
+    },
+  },
+  {
+    name: 'read_knowledge',
+    description: '读取一条知识卡片/总结文档的完整内容（search_knowledge 结果中的 assetId）。',
+    inputSchema: {
+      type: 'object',
+      properties: { assetId: { type: 'number', description: '知识资产 id' } },
+      required: ['assetId'],
+    },
+  },
 ];
 
 function fmtTime(iso: string | null): string {
@@ -97,8 +117,8 @@ function humanSize(b: number | null): string {
 export function createMcpHandler(deps: { store: WalleStore; cas: ContentStore }) {
   const { store, cas } = deps;
 
-  /** 读取记忆/技能正文：敏感资产脱敏，超长截断 */
-  const readContent = (assetId: number, expectKind: 'memory' | 'skill'): string => {
+  /** 读取记忆/技能/知识正文：敏感资产脱敏，超长截断 */
+  const readContent = (assetId: number, expectKind: 'memory' | 'skill' | 'knowledge'): string => {
     const a = store.getAssetById(assetId);
     if (!a || a.status !== 'active') throw new Error(`资产 #${assetId} 不存在`);
     if (a.kind !== expectKind) throw new Error(`资产 #${assetId} 是 ${a.kind}，不是 ${expectKind}`);
@@ -145,6 +165,17 @@ export function createMcpHandler(deps: { store: WalleStore; cas: ContentStore })
       }
       case 'read_skill':
         return readContent(Number(args.assetId), 'skill');
+      case 'search_knowledge': {
+        const q = String(args.query ?? '').trim();
+        const limit = Math.min(Number(args.limit) || 10, 50);
+        const hits = q ? store.search(q, { kind: 'knowledge', limit }) : store.listAssets({ kind: 'knowledge', limit }).map((a) => ({
+          assetId: a.id, tool: a.tool, path: a.path, assetName: a.name, snippet: `${humanSize(a.size)} · ${fmtTime(a.mtime)}`,
+        }));
+        if (!hits.length) return '知识库为空或没有匹配条目。';
+        return hits.map((h) => `#${h.assetId} [知识] ${h.assetName ?? h.path}\n  ${h.path}\n  ${h.snippet}`).join('\n');
+      }
+      case 'read_knowledge':
+        return readContent(Number(args.assetId), 'knowledge');
       default:
         throw new Error(`未知工具: ${name}`);
     }

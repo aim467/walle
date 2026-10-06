@@ -6,6 +6,7 @@ import Assets from './views/Assets.vue';
 import Sessions from './views/Sessions.vue';
 import Skills from './views/Skills.vue';
 import Memories from './views/Memories.vue';
+import Knowledge from './views/Knowledge.vue';
 import Settings from './views/Settings.vue';
 import walleMark from './assets/walle-mark.svg';
 
@@ -18,6 +19,7 @@ const nav = [
   { path: '/sessions', label: '会话', icon: 'M4 4h16a2 2 0 012 2v9a2 2 0 01-2 2H9l-5 4V6a2 2 0 012-2z' },
   { path: '/skills', label: '技能', icon: 'M13.6 21.3l-2.1-2.1a2 2 0 010-2.8 2 2 0 000-2.9 2 2 0 00-2.9 0 2 2 0 01-2.8 0L3.7 11.4a1.5 1.5 0 010-2.1l2.5-2.5a1 1 0 011.4 0l1.3 1.3a1.6 1.6 0 002.3-2.3L9.9 4.5a1 1 0 010-1.4L12.4.6a1.5 1.5 0 012.1 0l2.1 2.1a2 2 0 002.8 0 2 2 0 012.9 0 2 2 0 000 2.8l2.1 2.1a1.5 1.5 0 010 2.1l-2.5 2.5a1 1 0 01-1.4 0l-1.3-1.3a1.6 1.6 0 00-2.3 2.3l1.3 1.3a1 1 0 010 1.4l-2.5 2.5a1.5 1.5 0 01-2.1 0z' },
   { path: '/memories', label: '记忆', icon: 'M9.5 2a3.5 3.5 0 00-3.37 4.46A4.5 4.5 0 003 10.5c0 1.4.64 2.65 1.64 3.47A4.25 4.25 0 008 21c.89 0 1.72-.27 2.4-.74.36-.24.6-.65.6-1.1V3.9c0-.6-.4-1.12-.98-1.25A3.6 3.6 0 009.5 2zM14.5 2a3.5 3.5 0 013.37 4.46A4.5 4.5 0 0121 10.5c0 1.4-.64 2.65-1.64 3.47A4.25 4.25 0 0116 21a3.97 3.97 0 01-2.4-.74c-.36-.24-.6-.65-.6-1.1V3.9c0-.6.4-1.12.98-1.25.17-.05.34-.06.52-.06z' },
+  { path: '/knowledge', label: '知识库', icon: 'M6 2h12a1 1 0 011 1v18l-7-3.5L5 21V3a1 1 0 011-1zM8 6h8v2H8V6z' },
   { path: '/settings', label: '设置', icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zm8.4 4a8.4 8.4 0 00-.1-1.3l2-1.6-2-3.4-2.4 1a8.5 8.5 0 00-2.2-1.3L15.3 3h-4l-.4 2.4a8.5 8.5 0 00-2.2 1.3l-2.4-1-2 3.4 2 1.6a8.4 8.4 0 000 2.6l-2 1.6 2 3.4 2.4-1a8.5 8.5 0 002.2 1.3l.4 2.4h4l.4-2.4a8.5 8.5 0 002.2-1.3l2.4 1 2-3.4-2-1.6c.07-.43.1-.86.1-1.3z' },
 ];
 
@@ -87,6 +89,7 @@ function toggleSidebar() {
             <Sessions v-else-if="route.startsWith('/sessions')" />
             <Skills v-else-if="route.startsWith('/skills')" />
             <Memories v-else-if="route.startsWith('/memories')" />
+            <Knowledge v-else-if="route.startsWith('/knowledge')" />
             <Settings v-else-if="route.startsWith('/settings')" />
             <div v-else class="dim" style="padding-top:120px;text-align:center">404</div>
           </main>

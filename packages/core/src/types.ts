@@ -4,6 +4,7 @@ export type AssetKind =
   | 'session'
   | 'memory'
   | 'skill'
+  | 'knowledge'
   | 'mcp'
   | 'rule'
   | 'prompt'
