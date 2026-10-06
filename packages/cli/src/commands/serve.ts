@@ -460,6 +460,35 @@ export async function cmdServe(rest: string[]): Promise<void> {
         });
         return;
       }
+      if (url.pathname === '/api/knowledge/delete' && req.method === 'POST') {
+        // 删除知识卡片：文件移除 + 重扫（资产标 missing，CAS 副本保留可追溯）
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 16 * 1024) req.destroy();
+        });
+        req.on('end', async () => {
+          try {
+            const { assetId } = JSON.parse(body) as { assetId: number };
+            const asset = store.getAssetById(Number(assetId));
+            if (!asset) { json(res, { ok: false, error: 'asset not found' }); return; }
+            if (asset.kind !== 'knowledge' || asset.tool !== 'walle') { json(res, { ok: false, error: '只能删除知识库卡片' }); return; }
+            const dir = path.resolve(resolveToolRoot('walle.knowledge'));
+            const abs = path.resolve(dir, asset.path);
+            // 防穿越：解析后的路径必须仍在知识库目录内
+            if (abs !== dir && !abs.startsWith(dir + path.sep)) { json(res, { ok: false, error: '非法路径' }); return; }
+            if (fs.existsSync(abs)) fs.rmSync(abs);
+            // 目录清空后顺带清理空子目录（知识卡片均为平铺/简单结构）
+            let scanError: string | null = null;
+            try { await runScan(adapters, store, cas, { sources: ['walle'] }); } catch (err) { scanError = (err as Error).message; }
+            json(res, { ok: true, scanError });
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
+        });
+        return;
+      }
       if (url.pathname === '/api/read') {
         const assetId = Number(url.searchParams.get('asset'));
         const asset = store.getAssetById(assetId);

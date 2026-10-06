@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { NInput, NEmpty, NButton, NTag } from 'naive-ui';
+import { NInput, NEmpty, NButton, NTag, NPopconfirm, useMessage } from 'naive-ui';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import openaiLogo from '../assets/logos/openai.png';
@@ -148,6 +148,30 @@ async function saveEdit() {
   }
 }
 
+const message = useMessage();
+const deleting = ref(false);
+async function deleteCard() {
+  if (!selected.value || deleting.value) return;
+  deleting.value = true;
+  try {
+    const r = await (await fetch('/api/knowledge/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assetId: selected.value.id }),
+    })).json();
+    if (r.ok) {
+      message.success('已删除（内容副本仍在仓中，扫描可追溯）');
+      selected.value = null;
+      mdText.value = null;
+      await loadAll();
+    } else {
+      message.error('删除失败: ' + (r.error || ''));
+    }
+  } finally {
+    deleting.value = false;
+  }
+}
+
 async function createCard() {
   if (!newTitle.value.trim() || !newText.value.trim()) return;
   saving.value = true;
@@ -220,6 +244,12 @@ onMounted(loadAll);
               <n-button size="tiny" round @click="editing = false">取消</n-button>
             </template>
             <n-button v-else size="tiny" round @click="startEdit">编辑</n-button>
+            <n-popconfirm v-if="!editing" positive-text="删除" negative-text="取消" @positive-click="deleteCard">
+              <template #trigger>
+                <n-button size="tiny" round quaternary type="error" :loading="deleting">删除</n-button>
+              </template>
+              删除该知识卡片？内容副本仍保留在仓中可追溯。
+            </n-popconfirm>
           </div>
         </div>
 
