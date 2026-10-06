@@ -455,6 +455,32 @@ test('项目级记忆入索引可检索', () => {
   assert.ok(hits.some((h) => h.tool === 'workbuddy' && h.path.includes('2026-10-01')), '项目记忆内容应可全文检索');
 });
 
+// ---------- P5.2：统一记忆视图（跨工具聚合 + 相似检测） ----------
+
+test('memoriesOverview：作用域归组、项目根提取、同名跨作用域检测', async () => {
+  await runScan(adapters, store, cas, { ...scanOpts, projectRoots: [projectRoot] });
+  const { memories, similar } = store.memoriesOverview();
+  assert.ok(memories.length >= 5, `应有根记忆 + 项目记忆，实际 ${memories.length} 条`);
+
+  // 根记忆：workbuddy 国际/国内版 home 根与 zcode home 根
+  const globals = memories.filter((m) => m.scope === 'global');
+  assert.ok(globals.some((m) => m.tool === 'workbuddy' && m.projectRoot === null), 'workbuddy 根记忆应归 global 且无项目根');
+  assert.ok(globals.some((m) => m.tool === 'workbuddy-cn'), '国内版根记忆应入库');
+  assert.ok(globals.some((m) => m.tool === 'zcode' && m.name === 'MEMORY'), 'zcode 根记忆 MEMORY 应入库');
+
+  // 项目记忆：项目根取点目录之前的路径部分
+  const projects = memories.filter((m) => m.scope === 'project');
+  assert.ok(projects.length >= 3, 'project-alpha 应产出国际版 2 条 + 国内版 1 条项目记忆');
+  for (const m of projects) {
+    assert.equal(m.projectRoot, posix(projectRoot), `项目根应为 ${posix(projectRoot)}，实际 ${m.projectRoot}`);
+  }
+
+  // 相似检测：MEMORY 同名分布在全球（zcode）与项目（双账户）至少两个作用域
+  const nameGroup = similar.find((g) => g.kind === 'name' && /MEMORY/i.test(g.label));
+  assert.ok(nameGroup, '应检出 MEMORY 同名跨作用域组');
+  assert.ok(nameGroup.assetIds.length >= 2, '同名组应含至少 2 条');
+});
+
 test('项目线索：sessionProjectPaths 取自 session_meta（fixture 为合成路径，不指真机）', () => {
   const hints = store.sessionProjectPaths();
   assert.ok(hints.length >= 3, `codex/zcode/opencode/workbuddy 的 cwd 应成为线索，实际 ${hints.length} 条`);

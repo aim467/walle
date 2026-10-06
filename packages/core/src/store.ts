@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { RawAsset, AssetRecord, AssetKind, ParsedDoc, SessionMetaRow, SearchHit, SessionListRow, TokenUsage, ToolUsageRow, UsageDayRow, UsageProjectRow } from './types.js';
+import path from 'node:path';
+import type { RawAsset, AssetRecord, AssetKind, ParsedDoc, SessionMetaRow, SearchHit, SessionListRow, TokenUsage, ToolUsageRow, UsageDayRow, UsageProjectRow, MemoryEntry, MemorySimilarGroup } from './types.js';
 import { cjkTokenize, buildFtsQuery } from './tokenize.js';
 
 /**
@@ -595,6 +596,65 @@ export class WalleStore {
       output: r.output == null ? null : num(r.output),
       total: r.total == null ? null : num(r.total),
     }));
+  }
+
+  /**
+   * 统一记忆视图（P5.2）：kind=memory 资产跨工具聚合，按 根记忆（工具 home 根）× 项目记忆（绝对路径点目录）分组，
+   * 并做无 LLM 的相似检测——同名跨作用域、内容哈希一致两组。项目根取点目录之前的路径部分；
+   * 匹配不到已知点目录的绝对路径记忆按文件父目录兜底归组（宽容展示，不丢失）。
+   */
+  memoriesOverview(): { memories: MemoryEntry[]; similar: MemorySimilarGroup[] } {
+    const assets = this.listAssets({ kind: 'memory', limit: 5000 });
+    const memories: MemoryEntry[] = assets.map((a) => {
+      // v1.13 项目记忆的 path 是 POSIX 绝对路径（如 D:/proj/.workbuddy/memory/x.md）
+      const isAbs = /^[a-zA-Z]:[/\\]/.test(a.path) || a.path.startsWith('/');
+      let projectRoot: string | null = null;
+      if (isAbs) {
+        const posix = a.path.split(path.sep).join('/');
+        const m = posix.match(/^(.*?)\/\.(workbuddy-ai|workbuddy|agents|codex|zcode)\//i);
+        projectRoot = m ? m[1] : posix.slice(0, posix.lastIndexOf('/'));
+      }
+      const name = (a.name?.trim() || a.path.split(/[\\/]+/).pop() || a.path).replace(/\.md$/i, '');
+      return {
+        assetId: a.id,
+        tool: a.tool,
+        name,
+        path: a.path,
+        format: a.rawFormat,
+        size: a.size,
+        mtime: a.mtime,
+        contentHash: a.contentHash,
+        sensitive: a.sensitive,
+        scope: isAbs ? 'project' : 'global',
+        projectRoot,
+      };
+    });
+    const byId = new Map(memories.map((m) => [m.assetId, m]));
+    const scopeKey = (m: MemoryEntry) => (m.scope === 'global' ? `global:${m.tool}` : `project:${m.projectRoot ?? m.path}`);
+    const similar: MemorySimilarGroup[] = [];
+    // 同名跨作用域：名字相同且分布在不同 scope（工具/项目），才是「跨工具重复维护」信号
+    const byName = new Map<string, MemoryEntry[]>();
+    for (const m of memories) {
+      const k = m.name.toLowerCase();
+      byName.set(k, [...(byName.get(k) ?? []), m]);
+    }
+    for (const [k, arr] of byName) {
+      if (arr.length < 2) continue;
+      const scopes = new Set(arr.map(scopeKey));
+      if (scopes.size < 2) continue;
+      similar.push({ kind: 'name', label: `同名「${arr[0].name}」× ${arr.length}`, assetIds: arr.map((m) => m.assetId) });
+    }
+    // 同内容：不同资产哈希一致（复制/同步痕迹），同资产内不算
+    const byHash = new Map<string, MemoryEntry[]>();
+    for (const m of memories) {
+      if (!m.contentHash) continue;
+      byHash.set(m.contentHash, [...(byHash.get(m.contentHash) ?? []), m]);
+    }
+    for (const [hash, arr] of byHash) {
+      if (arr.length < 2 || new Set(arr.map(scopeKey)).size < 2) continue;
+      similar.push({ kind: 'content', label: `同内容 ${hash.slice(0, 10)} × ${arr.length}`, assetIds: arr.map((m) => m.assetId) });
+    }
+    return { memories, similar };
   }
 
   close(): void {

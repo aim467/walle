@@ -141,6 +141,11 @@ export async function cmdServe(rest: string[]): Promise<void> {
         json(res, { snapshots: store.listSnapshots(assetId) });
         return;
       }
+      if (url.pathname === '/api/memories') {
+        // 统一记忆视图：跨工具记忆聚合（根记忆×项目记忆）+ 相似检测（同名/同内容）
+        json(res, store.memoriesOverview());
+        return;
+      }
       if (url.pathname === '/api/overview') {
         // 总览：源统计 + 最近变更流（含跨工具 mtime 对比——"谁刚被改过"）
         const sources = store.db.prepare('SELECT id, tool, display_name, root_path, last_scanned_at FROM source ORDER BY tool').all() as unknown[];

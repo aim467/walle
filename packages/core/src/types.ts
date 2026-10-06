@@ -157,6 +157,29 @@ export interface UsageProjectRow {
   total: number | null;
 }
 
+/** 统一记忆视图条目（store.memoriesOverview）：scope 区分根记忆与项目记忆 */
+export interface MemoryEntry {
+  assetId: number;
+  tool: string;
+  name: string;
+  path: string;
+  format: string | null;
+  size: number | null;
+  mtime: string | null;
+  contentHash: string | null;
+  sensitive: number;
+  scope: 'global' | 'project';
+  /** 项目记忆所属项目根（点目录之前的路径部分）；根记忆为 null */
+  projectRoot: string | null;
+}
+
+/** 相似记忆分组（同名跨作用域 / 内容哈希一致） */
+export interface MemorySimilarGroup {
+  kind: 'name' | 'content';
+  label: string;
+  assetIds: number[];
+}
+
 export interface IndexStats {
   assetsIndexed: number;
   docsAdded: number;
