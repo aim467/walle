@@ -112,6 +112,7 @@ INSERT INTO session (id, title, directory, version, time_created) VALUES ('sess_
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (1, 'sess_fixture1', '{"role":"user"}', 0, '2026-09-30T10:00:01Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (1, '1', 'sess_fixture1', '{"type":"text","text":"fixture prompt：帮我检查语义检索的阈值配置"}', 0, '2026-09-30T10:00:01Z');
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (2, 'sess_fixture1', '{"role":"assistant"}', 1, '2026-09-30T10:00:02Z');
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (5, '2', 'sess_fixture1', '{"type":"reasoning","text":"fixture thinking：先读配置文件确认阈值"}', 3, '2026-09-30T10:00:06Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (2, '2', 'sess_fixture1', '{"type":"tool","callID":"call_fx","tool":"Read","state":{"status":"completed","input":{"file_path":"D:\\\\fixture\\\\proj\\\\config.json"},"output":"config content"}}', 0, '2026-09-30T10:00:03Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (3, '2', 'sess_fixture1', '{"type":"step-finish","reason":"tool-calls","cost":0.5,"tokens":{"total":1000,"input":900,"output":100,"reasoning":50,"cache":{"read":200,"write":30}}}', 1, '2026-09-30T10:00:04Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (4, '2', 'sess_fixture1', '{"type":"step-finish","reason":"end-turn","cost":0.25,"tokens":{"total":500,"input":400,"output":100,"reasoning":10,"cache":{"read":100,"write":0}}}', 2, '2026-09-30T10:00:05Z');`);
@@ -245,6 +246,10 @@ write(
       content: [{ type: 'input_text', text: '<system-reminder data-role="user-context">\n<user_info>\nOS Version: win32\n</user_info>\n</system-reminder>\n<user_query>帮我检查语义检索的阈值配置</user_query>' }],
     },
     { type: 'ai-title', id: 'fixture-at-1', aiTitle: '检查语义检索阈值', sessionId: wbSessA, timestamp: 1789211128948, cwd: 'D:\\fixture\\proj' },
+    // 思考模式样本：工具前独白（assistant message 后紧跟 function_call）——不得入消息流
+    { type: 'message', id: 'fixture-think-1', timestamp: 1789211128500, role: 'assistant', content: [{ type: 'output_text', text: 'I should check the threshold config files first.' }] },
+    { type: 'function_call', id: 'fixture-fc-1', timestamp: 1789211128600, name: 'read', callId: 'fixture-fc-1', arguments: '{"path":"config.toml"}' },
+    { type: 'function_call_result', id: 'fixture-fcr-1', timestamp: 1789211128700, name: 'read', callId: 'fixture-fc-1', status: 'completed', output: { text: 'threshold = 0.5' } },
     { type: 'message', id: 'fixture-m2', timestamp: 1789211130000, role: 'assistant', content: [{ type: 'output_text', text: '语义检索阈值已确认，mcp server 正常' }] },
   ]
     .map((o) => JSON.stringify(o))

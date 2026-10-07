@@ -4,12 +4,13 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets, createZip } from '@walle/core';
+import { WriteEngine, readWalleConfig, writeWalleConfig, runScan, maskSecrets, createZip, diffLines, collapseDiff, appendMemoryEntry, sha256File } from '@walle/core';
 import type { ZipEntry } from '@walle/core';
 import { adapters, resolveToolRoot, TOOL_ROOT_DEFS } from '@walle/adapters';
 import { openStores } from '../context.js';
 import { parseSkillSource, fetchZipBytes, discoverSkillsFromZip, installSkillsFromZip, installSkillHubZip, searchSkillHub, extractDescription } from '../skills-import.js';
-import { llmStatus, validateLlmInput, chatCompletion, buildDistillPrompt } from '../llm.js';
+import { llmStatus, validateLlmInput, chatCompletion, buildDistillPrompt, buildSummaryPrompt } from '../llm.js';
+import { buildKnowledgeDoc } from '../knowledge.js';
 import type { LinkTarget, InstallResult } from '../skills-import.js';
 
 /** P2 本地 Web UI：仅监听 127.0.0.1，只读 API（search / sessions / read / stats）。
@@ -118,6 +119,27 @@ export async function cmdServe(rest: string[]): Promise<void> {
     const dir = abs ? path.dirname(abs) : null;
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
     return { dir, name: path.basename(dir) || 'skill' };
+  }
+
+  /** 解析记忆写回目标（提炼二期）：kind=memory 且适配器声明写能力的资产 → 磁盘绝对路径 */
+  function memoryTargetOf(assetId: number): { asset: NonNullable<ReturnType<typeof store.getAssetById>>; abs: string } | { error: string } {
+    const asset = store.getAssetById(assetId);
+    if (!asset) return { error: 'asset not found' };
+    if (asset.kind !== 'memory') return { error: '只能写回记忆文件' };
+    if (asset.rawFormat === 'sqlite' || asset.rawFormat === 'dir') return { error: '该记忆资产为数据库/目录形态，不可写回' };
+    const adapter = adapters.find((a) => a.id === asset.tool);
+    if (!adapter || !adapter.capabilities.write) return { error: `${asset.tool} 不支持写回` };
+    const rootRow = store.db.prepare('SELECT root_path FROM source WHERE id = ?').get(asset.sourceId) as { root_path: string } | undefined;
+    if (!rootRow?.root_path) return { error: '源根目录缺失' };
+    const abs = adapter.resolve ? adapter.resolve(rootRow.root_path, asset.path) : path.resolve(rootRow.root_path, asset.path);
+    return { asset, abs };
+  }
+
+  /** 记忆文件当前内容：优先磁盘现状（追加要落在真实文件上），磁盘缺失回退 CAS 存档 */
+  function memoryCurrentText(asset: { contentHash: string | null }, abs: string): string {
+    if (fs.existsSync(abs)) return fs.readFileSync(abs, 'utf8');
+    if (asset.contentHash && cas.has(asset.contentHash)) return fs.readFileSync(cas.pathFor(asset.contentHash), 'utf8');
+    return '';
   }
 
   const server = http.createServer((req, res) => {
@@ -385,7 +407,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
           try {
             const status = llmStatus();
             if (!status.configured) { json(res, { ok: false, error: '未配置大模型（设置页填写 OpenAI 兼容接口）' }); return; }
-            const { assetId, subId, seqs } = JSON.parse(body) as { assetId: number; subId?: string; seqs: number[] };
+            const { assetId, subId, seqs, product } = JSON.parse(body) as { assetId: number; subId?: string; seqs: number[]; product?: 'card' | 'summary' };
             if (!Array.isArray(seqs) || !seqs.length) { json(res, { ok: false, error: '未圈选任何消息' }); return; }
             const asset = store.getAssetById(Number(assetId));
             if (!asset) { json(res, { error: 'asset not found' }); return; }
@@ -407,7 +429,10 @@ export async function cmdServe(rest: string[]): Promise<void> {
             const sessMeta = store.listSessions({ tool: asset.tool, limit: 1000 });
             const metaRow = sessMeta.find((sm) => sm.assetId === asset.id && (!subId || sm.subId === subId));
             const cfg = readWalleConfig().llm!;
-            const text = await chatCompletion(cfg, buildDistillPrompt(turns, metaRow?.title ?? null));
+            const prompt = product === 'summary'
+              ? buildSummaryPrompt(turns, metaRow?.title ?? null, metaRow?.projectPath ?? null)
+              : buildDistillPrompt(turns, metaRow?.title ?? null);
+            const text = await chatCompletion(cfg, prompt);
             json(res, { ok: true, text });
           } catch (err) {
             json(res, { ok: false, error: (err as Error).message });
@@ -426,8 +451,8 @@ export async function cmdServe(rest: string[]): Promise<void> {
         });
         req.on('end', async () => {
           try {
-            const { title, tags, text, source } = JSON.parse(body) as {
-              title: string; tags?: string[]; text: string;
+            const { title, tags, text, type, project, source } = JSON.parse(body) as {
+              title: string; tags?: string[]; text: string; type?: 'card' | 'summary'; project?: string;
               source?: { tool?: string; assetId?: number; subId?: string; sessionTitle?: string };
             };
             const t = String(title ?? '').trim();
@@ -435,25 +460,12 @@ export async function cmdServe(rest: string[]): Promise<void> {
             if (!t || !content) { json(res, { ok: false, error: '标题与内容不能为空' }); return; }
             const dir = resolveToolRoot('walle.knowledge');
             fs.mkdirSync(dir, { recursive: true });
-            const slug = t.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'note';
-            const file = `${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}-${slug}.md`;
-            const fm = [
-              '---',
-              `title: ${t}`,
-              tags?.length ? `tags: [${tags.map((x) => String(x).replace(/[\]\[\s,]/g, '')).filter(Boolean).join(', ')}]` : null,
-              source?.tool ? `source_tool: ${source.tool}` : null,
-              source?.assetId ? `source_asset: ${source.assetId}` : null,
-              source?.subId ? `source_sub: ${source.subId}` : null,
-              source?.sessionTitle ? `source_title: ${String(source.sessionTitle).replace(/\n/g, ' ').slice(0, 120)}` : null,
-              `created: ${new Date().toISOString()}`,
-              '---',
-              '',
-            ].filter((l) => l !== null).join('\n');
-            fs.writeFileSync(path.join(dir, file), fm + content + '\n', 'utf8');
+            const doc = buildKnowledgeDoc({ title: t, tags, text: content, type, project: project || null, source });
+            fs.writeFileSync(path.join(dir, doc.file), doc.content, 'utf8');
             // 立即重扫 walle 源入库，UI/mcp 马上可见
             let scanError: string | null = null;
             try { await runScan(adapters, store, cas, { sources: ['walle'] }); } catch (err) { scanError = (err as Error).message; }
-            json(res, { ok: true, file, scanError });
+            json(res, { ok: true, file: doc.file, scanError });
           } catch (err) {
             json(res, { ok: false, error: (err as Error).message });
           }
@@ -483,6 +495,72 @@ export async function cmdServe(rest: string[]): Promise<void> {
             let scanError: string | null = null;
             try { await runScan(adapters, store, cas, { sources: ['walle'] }); } catch (err) { scanError = (err as Error).message; }
             json(res, { ok: true, scanError });
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
+        });
+        return;
+      }
+      if (url.pathname === '/api/memory/targets' && req.method === 'GET') {
+        // 记忆写回目标清单（提炼二期）：可写回的记忆文件（文本形态 + 适配器声明写能力）
+        const { memories } = store.memoriesOverview();
+        const targets = memories
+          .filter((m) => m.format !== 'sqlite' && m.format !== 'dir')
+          .filter((m) => adapters.find((a) => a.id === m.tool)?.capabilities.write)
+          .map((m) => ({ assetId: m.assetId, tool: m.tool, name: m.name, path: m.path, scope: m.scope, projectRoot: m.projectRoot, size: m.size, mtime: m.mtime }));
+        json(res, { targets, allowWrite: !!readWalleConfig().allowWrite });
+        return;
+      }
+      if (url.pathname === '/api/memory/append-preview' && req.method === 'POST') {
+        // 写前 diff 预览：磁盘现状 + 追加条目 → 行级 diff + 冲突提示（不落盘）
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 1024 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          try {
+            const { assetId, entryText } = JSON.parse(body) as { assetId: number; entryText: string };
+            const entry = String(entryText ?? '').trim();
+            if (!entry) { json(res, { ok: false, error: '记忆条目内容为空' }); return; }
+            const t = memoryTargetOf(Number(assetId));
+            if ('error' in t) { json(res, { ok: false, error: t.error }); return; }
+            const current = memoryCurrentText(t.asset, t.abs);
+            const next = appendMemoryEntry(current, entry);
+            // 冲突预警：磁盘现状 ≠ 扫描记录（第三方工具改过），真正写入会被三保险拒绝
+            const conflict = fs.existsSync(t.abs) && !!t.asset.contentHash && sha256File(t.abs) !== t.asset.contentHash;
+            json(res, { ok: true, current, next, conflict, diff: collapseDiff(diffLines(current, next), 3) });
+          } catch (err) {
+            json(res, { ok: false, error: (err as Error).message });
+          }
+        });
+        return;
+      }
+      if (url.pathname === '/api/memory/append' && req.method === 'POST') {
+        // 记忆条目写回：WriteEngine 三保险（写前快照/原子写/冲突检测）；写的是用户工具文件，必须 allowWrite
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 1024 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          try {
+            const cfg = readWalleConfig();
+            if (!cfg.allowWrite) {
+              json(res, { ok: false, error: '写回开关未开启（walle write-enable）' });
+              return;
+            }
+            const { assetId, entryText, force } = JSON.parse(body) as { assetId: number; entryText: string; force?: boolean };
+            const entry = String(entryText ?? '').trim();
+            if (!entry) { json(res, { ok: false, error: '记忆条目内容为空' }); return; }
+            const t = memoryTargetOf(Number(assetId));
+            if ('error' in t) { json(res, { ok: false, error: t.error }); return; }
+            const current = memoryCurrentText(t.asset, t.abs);
+            const engine = new WriteEngine(store, cas, adapters);
+            const result = engine.write(t.asset.id, Buffer.from(appendMemoryEntry(current, entry), 'utf8'), { force: !!force });
+            json(res, result);
           } catch (err) {
             json(res, { ok: false, error: (err as Error).message });
           }

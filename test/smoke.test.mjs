@@ -316,6 +316,12 @@ test('workbuddy 会话：DB 标题合并 / ai-title 兜底 / 剥离注入块', (
   assert.ok(user && user.text.includes('语义检索'), '应提取到用户真实提问');
   assert.ok(!user.text.includes('system-reminder'), '注入块应被剥离');
   assert.ok(result.docs.some((d) => d.role === 'assistant'), '应含助手回复');
+  // 思考模式：工具前独白 → role=thinking（不混入助手消息，「思考」页签可见）
+  const asstTexts = result.docs.filter((d) => d.role === 'assistant').map((d) => d.text);
+  assert.ok(!asstTexts.some((t) => t.includes('I should check the threshold')), '思考独白不得记录为助手消息');
+  const think = result.docs.find((d) => d.role === 'thinking');
+  assert.ok(think && think.text.includes('I should check the threshold'), '工具前独白应为 thinking 文档');
+  assert.ok(asstTexts.some((t) => t.includes('语义检索阈值已确认')), '正常助手回复应保留');
 });
 
 test('read 模式解析：会话消息完整返回', () => {
@@ -348,6 +354,10 @@ test('工具调用与文件文档：Codex function_call / ZCode tool part / open
   assert.ok(zr.docs.some((d) => d.role === 'tool' && d.text.includes('[调用 Read]')), 'tool part 应转 tool 文档');
   assert.ok(zr.docs.some((d) => d.docType === 'session_file' && d.text === 'D:\\fixture\\proj\\config.json'), 'input.file_path 应入 session_file');
   assert.ok(zr.docs.some((d) => d.role === 'user' && d.text.includes('语义检索')), '文本消息不受影响');
+  // 思考 part：reasoning → role=thinking（不混入助手消息，「思考」页签可见）
+  const zcThink = zr.docs.find((d) => d.role === 'thinking');
+  assert.ok(zcThink && zcThink.text.includes('fixture thinking'), 'reasoning part 应为 thinking 文档');
+  assert.ok(!zr.docs.some((d) => d.role === 'assistant' && d.text.includes('fixture thinking')), '思考不得混入助手消息');
 
   const oc = adapters.find((a) => a.id === 'opencode');
   const orr = oc.parse(path.join(fixtures, 'opencode-data/opencode.db'), { kind: 'session', path: 'data:opencode.db', tool: 'opencode' }, 'read');

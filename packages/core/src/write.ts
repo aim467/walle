@@ -113,6 +113,17 @@ export class WriteEngine {
   }
 }
 
+/**
+ * 记忆条目追加（P5.2 提炼二期）：把渲染好的记忆条目追加到现有记忆文件内容之后。
+ * 空文件直接放条目；非空以 `---` 分隔线隔开（模板自带标题结构，分隔线只负责条目边界）。
+ * 追加只发生在文件末尾，不碰 frontmatter 与已有内容。
+ */
+export function appendMemoryEntry(current: string, entry: string): string {
+  const e = entry.trim() + '\n';
+  if (!current.trim()) return e;
+  return current.replace(/\s+$/, '\n') + '\n---\n\n' + e;
+}
+
 /** AssetRecord → RawAsset 形状（updateAsset 需要） */
 function assetToRaw(a: { kind: string; name: string | null; path: string; rawFormat: string | null; sensitive: number }, size: number, mtime: string) {
   return {

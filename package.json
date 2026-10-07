@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @walle/core && npm run build -w @walle/adapters && npm run build -w @walle/cli && npm run build -w @walle/ui",
-    "test": "npm run build && node scripts/gen-fixtures.mjs && node --test test/smoke.test.mjs test/skills-import.test.mjs test/mcp.test.mjs test/llm.test.mjs",
+    "test": "npm run build && node scripts/gen-fixtures.mjs && node --test test/smoke.test.mjs test/skills-import.test.mjs test/mcp.test.mjs test/llm.test.mjs test/distill2.test.mjs",
     "walle": "node packages/cli/dist/main.js",
     "verify": "node scripts/verify/verify-codex.mjs && node scripts/verify/verify-zcode.mjs"
   },

@@ -196,6 +196,12 @@ export function parseFamilyDb(contentPath: string, mode: ParseMode): ParsedResul
           }
           continue;
         }
+        if (d.type === 'reasoning') {
+          // 思考内容（ZCode/opencode reasoning part）：独立 role=thinking，供会话页「思考」页签
+          const text = typeof d.text === 'string' ? d.text : '';
+          if (text.trim()) docs.push({ subId, docType: 'session_message', seq: seq++, role: 'thinking', ts: msgTs, text });
+          continue;
+        }
         const text = typeof d.text === 'string' ? d.text : '';
         if (!text.trim()) continue;
         docs.push({
@@ -444,15 +450,24 @@ export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): Par
   let seq = 0;
   let firstUser: string | null = null;
 
+  // 预扫各行类型：思考模式（Hy3 等）下模型的思考独白以 type=message role=assistant 标准形态写入，
+  // 与正常回复无法从行内字段区分；其可靠特征是后面紧跟 function_call（思考 → 调工具）。
+  const lineTypes: string[] = [];
+  const objs: Record<string, unknown>[] = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    let o: Record<string, unknown>;
     try {
-      o = JSON.parse(line) as Record<string, unknown>;
+      const o = JSON.parse(line) as Record<string, unknown>;
+      objs.push(o);
+      lineTypes.push(typeof o.type === 'string' ? o.type : '');
     } catch {
-      continue;
+      /* 坏行跳过 */
     }
-    const type = typeof o.type === 'string' ? o.type : '';
+  }
+
+  for (let li = 0; li < objs.length; li++) {
+    const o = objs[li];
+    const type = lineTypes[li];
     if (o.sessionId) subId = String(o.sessionId);
     if (typeof o.cwd === 'string' && !projectPath) projectPath = o.cwd;
     if (type === 'ai-title' && typeof o.aiTitle === 'string') {
@@ -485,6 +500,13 @@ export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): Par
       }
       continue;
     }
+    if (type === 'reasoning') {
+      // 思考行（思考模型的思考，rawContent=[{type:'reasoning_text',text}]；content 恒空）→ role=thinking
+      const raw = Array.isArray(o.rawContent) ? (o.rawContent as Record<string, unknown>[]) : [];
+      const body = raw.map((c) => (typeof c.text === 'string' ? c.text : '')).join('\n');
+      if (body.trim()) docs.push({ subId, docType: 'session_message', seq: seq++, role: 'thinking', ts: toIso(o.timestamp), text: body });
+      continue;
+    }
     if (type !== 'message') continue;
     const role = typeof o.role === 'string' ? o.role : null;
     const content = Array.isArray(o.content) ? (o.content as Record<string, unknown>[]) : [];
@@ -494,6 +516,11 @@ export function parseWorkbuddyRollout(contentPath: string, mode: ParseMode): Par
     if (!firstUser && role === 'user') firstUser = body.replace(/\s+/g, ' ').slice(0, 60);
     const ts = toIso(o.timestamp);
     if (!startedAt && ts) startedAt = ts;
+    // 思考模式的工具前独白（后面紧跟 function_call）→ role=thinking（不混入助手消息，可在「思考」页签查看）
+    if (role === 'assistant' && lineTypes[li + 1] === 'function_call') {
+      docs.push({ subId, docType: 'session_message', seq: seq++, role: 'thinking', ts, text: body });
+      continue;
+    }
     docs.push({ subId, docType: 'session_message', seq: seq++, role, ts, text: body });
   }
 

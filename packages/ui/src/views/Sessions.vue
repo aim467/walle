@@ -22,7 +22,7 @@ interface TokenUsage { input: number | null; output: number | null; reasoning: n
 interface ReadMeta { model: string | null; projectPath: string | null; startedAt: string | null; messageCount: number | null; subId: string; usage: TokenUsage | null }
 interface ArtifactFile { name: string; size: number; mtime: string }
 
-const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具' };
+const roleLabel: Record<string, string> = { user: '用户', assistant: '助手', developer: '系统注入', system: '系统', tool: '工具', thinking: '思考' };
 /** 角色头部样式元数据：头像类型与配色 */
 const roleMeta: Record<string, { bg: string; fg: string; icon: string }> = {
   user: { bg: '#0071e3', fg: '#fff', icon: 'user' },
@@ -30,11 +30,13 @@ const roleMeta: Record<string, { bg: string; fg: string; icon: string }> = {
   developer: { bg: '#e8e2f4', fg: '#5e5ce6', icon: 'gear' },
   system: { bg: '#ececec', fg: '#6e6e73', icon: 'gear' },
   tool: { bg: '#fff3d6', fg: '#b25000', icon: 'wrench' },
+  thinking: { bg: '#efe9f7', fg: '#7d5bd0', icon: 'think' },
 };
 const SVG_ICONS: Record<string, string> = {
   user: 'M12 12a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm0 2c-4 0-7.5 2-7.5 4.5V21h15v-2.5c0-2.5-3.5-4.5-7.5-4.5z',
   gear: 'M12 8.5A3.5 3.5 0 1012 15.5 3.5 3.5 0 0012 8.5zm8.9 4.9l-1.8-1a6.9 6.9 0 000-2.8l1.8-1a1 1 0 00.4-1.3l-1.5-2.6a1 1 0 00-1.3-.4l-1.8 1a7 7 0 00-2.4-1.4V2a1 1 0 00-1-1h-3a1 1 0 00-1 1v1.9a7 7 0 00-2.4 1.4l-1.8-1a1 1 0 00-1.3.4L3.3 6.9a1 1 0 00.4 1.3l1.8 1a6.9 6.9 0 000 2.8l-1.8 1a1 1 0 00-.4 1.3l1.5 2.6a1 1 0 001.3.4l1.8-1a7 7 0 002.4 1.4V19a1 1 0 001 1h3a1 1 0 001-1v-1.9a7 7 0 002.4-1.4l1.8 1a1 1 0 001.3-.4l1.5-2.6a1 1 0 00-.4-1.3z',
   wrench: 'M21.7 5.3l-4-4a1 1 0 00-1.4 0l-2.5 2.5a5.5 5.5 0 00-6.9 6.9L1.3 16.3a1 1 0 000 1.4l5 5a1 1 0 001.4 0l5.6-5.6a5.5 5.5 0 006.9-6.9l2.5-2.5a1 1 0 000-1.4zM7.5 19.1l-2.6-2.6 3-3 2.6 2.6z',
+  think: 'M12 2a7 7 0 00-4 12.7c.6.5 1 1.4 1 2.3v1h6v-1c0-.9.4-1.8 1-2.3A7 7 0 0012 2zM9.5 21h5M10.5 23h3',
 };
 interface ToolDef { id: string; name: string; logo?: string; letter: string; color: string }
 const TOOLS: ToolDef[] = [
@@ -54,7 +56,7 @@ const listQ = ref('');
 const msgs = ref<Msg[]>([]);
 const readMeta = ref<{ title: string | null; tool: string; meta: ReadMeta | null } | null>(null);
 const curKey = ref('');
-const detailTab = ref<'msgs' | 'overview' | 'tools' | 'files' | 'system' | 'raw'>('msgs');
+const detailTab = ref<'msgs' | 'thinking' | 'overview' | 'tools' | 'files' | 'system' | 'raw'>('msgs');
 const rawText = ref<string | null>(null);
 const rawLoading = ref(false);
 
@@ -101,6 +103,22 @@ function clipText(m: Msg) {
   return cut;
 }
 
+/** 思考消息：默认折叠为摘要（与长消息折叠独立），展开后整段可读 */
+const THINK_PREVIEW_CHARS = 600;
+const expandedThinking = reactive(new WeakSet<Msg>());
+const thinkCollapsed = (m: Msg) => !expandedThinking.has(m);
+function toggleThinking(m: Msg) {
+  if (expandedThinking.has(m)) expandedThinking.delete(m);
+  else expandedThinking.add(m);
+}
+function thinkPreview(m: Msg): string {
+  let cut = m.text.slice(0, THINK_PREVIEW_CHARS);
+  const nl = cut.lastIndexOf('\n');
+  if (nl > THINK_PREVIEW_CHARS * 0.6) cut = cut.slice(0, nl);
+  return cut;
+}
+const thinkTotalChars = computed(() => thinkingMsgs.value.reduce((n, m) => n + m.text.length, 0));
+
 /** assistant 消息 Markdown 渲染（DOMPurify 消毒；折叠消息以截断文本为源渲染摘要） */
 function mdHtml(m: Msg): string {
   const src = isCollapsed(m) ? clipText(m) : m.text;
@@ -108,8 +126,10 @@ function mdHtml(m: Msg): string {
 }
 
 const toolMsgs = computed(() => msgs.value.filter((m) => m.role === 'tool'));
+const thinkingMsgs = computed(() => msgs.value.filter((m) => m.role === 'thinking'));
 const systemMsgs = computed(() => msgs.value.filter((m) => m.role === 'developer' || m.role === 'system'));
-const visibleMsgs = computed(() => msgs.value.filter((m) => m.role !== 'tool'));
+// 消息流排除工具与思考（各自有专属页签）
+const visibleMsgs = computed(() => msgs.value.filter((m) => m.role !== 'tool' && m.role !== 'thinking'));
 
 /** Files 页签：会话涉及的文件（来自工具调用路径提取，session_file 文档按路径聚合） */
 const fileGroups = computed(() => {
@@ -182,6 +202,12 @@ function jumpToUser(idx: number) {
     setTimeout(function () { el.classList.remove('anchor-flash'); }, 1600);
   }
 }
+/** 思考索引定位：目标默认折叠，先展开再滚动 */
+function jumpToThink(idx: number) {
+  const m = thinkingMsgs.value[idx];
+  if (m) expandedThinking.add(m);
+  document.getElementById('think-' + idx)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 async function loadSessions() {
   allSessions.value = ((await (await fetch('/api/list?sessions=1&limit=2000')).json()).hits ?? []) as Hit[];
@@ -227,7 +253,7 @@ function currentAssetId(): number {
   return cur ? cur.assetId : 0;
 }
 
-// ---------- 会话提炼（P5.2）：圈选消息 → 生成知识卡片 ----------
+// ---------- 会话提炼（P5.2）：圈选消息 → 三种产物（知识卡片/总结文档/记忆条目） ----------
 const message = useMessage();
 const distillOpen = ref(false);
 const distillSel = ref<number[]>([]);
@@ -235,9 +261,94 @@ const distillTitle = ref('');
 const distillTags = ref('');
 const distillBody = ref('');
 const distillSaving = ref(false);
+const distillProduct = ref<'card' | 'summary' | 'memory'>('card');
+const distillProject = ref('');
 const distillSource = ref<{ assetId: number; subId: string; tool: string; title: string | null } | null>(null);
 /** 提炼素材：只取 user/assistant 双角色正文（口径与未来 LLM 蒸馏一致） */
 const distillMsgs = computed(() => msgs.value.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.text.trim()));
+const productOptions = [
+  { label: '知识卡片（问题/方案/结论）', value: 'card' },
+  { label: '总结文档（项目纪要）', value: 'summary' },
+  { label: '记忆条目（写回记忆文件）', value: 'memory' },
+];
+
+// 记忆写回（提炼二期产物之三）：目标下拉 + 模板 + diff 预览 + WriteEngine 三保险
+interface MemTarget { assetId: number; tool: string; name: string; path: string; scope: 'global' | 'project'; projectRoot: string | null; size: number | null; mtime: string | null }
+interface DiffLine { op: 'same' | 'add' | 'del'; text: string; gap?: number }
+const memTargets = ref<MemTarget[]>([]);
+const memAllowWrite = ref(false);
+const memTarget = ref<number | null>(null);
+const memTplKey = ref<'std' | 'one' | 'custom'>('std');
+const memTplCustom = ref('');
+const MEM_TEMPLATES = [
+  { key: 'std' as const, label: '标准条目（日期 + 标题）', tpl: '## {date} {title}\n\n{summary}\n\n> 来源会话：{source}' },
+  { key: 'one' as const, label: '简洁一行', tpl: '- {date} {title}：{summary}（来源：{source}）' },
+  { key: 'custom' as const, label: '自定义模板…', tpl: '' },
+];
+const memDiff = ref<DiffLine[] | null>(null);
+const memConflict = ref(false);
+const memPreviewing = ref(false);
+const memWriting = ref(false);
+
+const memTargetOptions = computed(() => {
+  const byTool = new Map<string, { label: string; value: number }[]>();
+  for (const t of memTargets.value) {
+    const scopeTag = t.scope === 'global' ? '根记忆' : '项目';
+    const item = { label: `${scopeTag} · ${t.name}`, value: t.assetId };
+    byTool.set(t.tool, [...(byTool.get(t.tool) ?? []), item]);
+  }
+  return [...byTool.entries()].map(([tool, children]) => ({ type: 'group' as const, label: tool, key: tool, children }));
+});
+const memTplText = computed(() => (memTplKey.value === 'custom' ? memTplCustom.value : MEM_TEMPLATES.find((m) => m.key === memTplKey.value)!.tpl));
+/** 模板渲染：{date} {title} {summary} {source} 四个占位符 */
+function renderEntry(): string {
+  const src = distillSource.value;
+  return memTplText.value
+    .replaceAll('{date}', new Date().toISOString().slice(0, 10))
+    .replaceAll('{title}', distillTitle.value.trim() || '未命名')
+    .replaceAll('{summary}', distillBody.value.trim())
+    .replaceAll('{source}', src ? `${src.tool}${src.title ? `「${src.title}」` : ''}` : '手动记录');
+}
+async function loadMemTargets() {
+  try {
+    const d = await (await fetch('/api/memory/targets')).json();
+    memTargets.value = d.targets ?? [];
+    memAllowWrite.value = !!d.allowWrite;
+    if (memTarget.value == null && memTargets.value.length) memTarget.value = memTargets.value[0].assetId;
+  } catch { memTargets.value = []; }
+}
+async function previewMemDiff() {
+  if (memTarget.value == null || memPreviewing.value || !distillBody.value.trim()) return;
+  memPreviewing.value = true;
+  try {
+    const r = await (await fetch('/api/memory/append-preview', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assetId: memTarget.value, entryText: renderEntry() }),
+    })).json();
+    if (r.ok) { memDiff.value = r.diff; memConflict.value = !!r.conflict; }
+    else { memDiff.value = null; message.error(r.error ?? '预览失败'); }
+  } finally {
+    memPreviewing.value = false;
+  }
+}
+async function writeMemory() {
+  if (memTarget.value == null || memWriting.value || !distillBody.value.trim()) return;
+  memWriting.value = true;
+  try {
+    const r = await (await fetch('/api/memory/append', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assetId: memTarget.value, entryText: renderEntry() }),
+    })).json();
+    if (r.ok) {
+      distillOpen.value = false;
+      message.success('已写入记忆文件（写前快照 #' + (r.snapshotId ?? '-') + '，可回滚）');
+    } else {
+      message.error('写入失败: ' + (r.reason || r.error || ''));
+    }
+  } finally {
+    memWriting.value = false;
+  }
+}
 
 function openDistill() {
   if (!readMeta.value) return;
@@ -248,11 +359,16 @@ function openDistill() {
   const firstUser = list.find((m) => m.role === 'user');
   const lastAsst = [...list].reverse().find((m) => m.role === 'assistant');
   distillSel.value = [firstUser?.seq, lastAsst?.seq].filter((s): s is number => s != null && list.some((m) => m.seq === s));
+  distillProduct.value = 'card';
   distillTitle.value = (readMeta.value.title ?? '') + ' · 提炼';
   distillTags.value = '';
+  distillProject.value = readMeta.value.meta?.projectPath ?? '';
+  memDiff.value = null;
+  memConflict.value = false;
   prefillBody();
   distillOpen.value = true;
   void loadLlmStatus();
+  void loadMemTargets();
 }
 function onDistillSelChange(v: number[]) {
   distillSel.value = v;
@@ -278,7 +394,7 @@ async function aiSummarize() {
     const r = await (await fetch('/api/llm/summarize', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ assetId: distillSource.value.assetId, subId: distillSource.value.subId, seqs: distillSel.value }),
+      body: JSON.stringify({ assetId: distillSource.value.assetId, subId: distillSource.value.subId, seqs: distillSel.value, product: distillProduct.value === 'memory' ? 'card' : distillProduct.value }),
     })).json();
     if (r.ok) distillBody.value = r.text;
     else message.error(r.error ?? '生成失败');
@@ -296,12 +412,14 @@ async function saveDistill() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         title: distillTitle.value, tags: distillTags.value.split(',').map((s) => s.trim()).filter(Boolean), text: distillBody.value,
+        type: distillProduct.value === 'summary' ? 'summary' : 'card',
+        project: distillProduct.value === 'summary' ? (distillProject.value || null) : null,
         source: { tool: distillSource.value.tool, assetId: distillSource.value.assetId, subId: distillSource.value.subId, sessionTitle: distillSource.value.title },
       }),
     })).json();
     if (r.ok) {
       distillOpen.value = false;
-      message.success('已存入知识库');
+      message.success(distillProduct.value === 'summary' ? '已存入知识库（总结文档）' : '已存入知识库');
     } else {
       message.error('保存失败: ' + (r.error || ''));
     }
@@ -419,7 +537,7 @@ onMounted(async () => {
           </div>
           <div class="d-tabs glassbar">
             <button v-for="t in [
-              { k: 'msgs', label: '消息' }, { k: 'overview', label: '概览' }, { k: 'tools', label: 'Tools' },
+              { k: 'msgs', label: '消息' }, { k: 'thinking', label: '思考' }, { k: 'overview', label: '概览' }, { k: 'tools', label: 'Tools' },
               { k: 'files', label: 'Files' }, { k: 'system', label: 'System' }, { k: 'raw', label: 'Raw' },
             ]" :key="t.k" class="d-tab" :class="{ on: detailTab === t.k }"
               @click="detailTab = t.k; if (t.k === 'raw' && rawText === null) loadRaw(); if (t.k === 'files') loadArtifacts()">
@@ -549,6 +667,42 @@ onMounted(async () => {
               </div>
               <pre v-if="artifactPreview" class="raw" style="margin-top:12px; max-height:420px; overflow:auto">{{ artifactPreview.text + (artifactPreview.truncated ? '\n…（超过 512KB，已截断）' : '') }}</pre>
             </div>
+            <!-- 思考：模型的内在独白——左侧紫色轨道卡片 + 右侧索引导航 -->
+            <div v-else-if="detailTab === 'thinking'" class="msgs-wrap">
+              <div class="msgs-flow">
+                <template v-if="thinkingMsgs.length">
+                  <div class="think-summary dim small">
+                    共 {{ thinkingMsgs.length }} 段思考 · 约 {{ thinkTotalChars.toLocaleString() }} 字符——默认折叠，点击卡片展开
+                  </div>
+                  <div v-for="(m, i) in thinkingMsgs" :key="i" class="think-row" :id="'think-' + i">
+                    <div class="think-card" :class="{ open: !thinkCollapsed(m) }" @click="toggleThinking(m)">
+                      <div class="think-head">
+                        <span class="think-idx">{{ String(i + 1).padStart(2, '0') }}</span>
+                        <span class="think-title">思考</span>
+                        <span v-if="m.ts" class="dim small">{{ fmtHM(m.ts) }}</span>
+                        <span class="think-chars dim small">{{ m.text.length.toLocaleString() }} 字符</span>
+                        <span class="think-chev" aria-hidden="true">▾</span>
+                      </div>
+                      <div class="think-body" :class="{ clamped: thinkCollapsed(m) }">{{ thinkCollapsed(m) ? thinkPreview(m) : m.text }}</div>
+                    </div>
+                    <span v-if="thinkCollapsed(m) && m.text.length > THINK_PREVIEW_CHARS" class="think-more">点击展开全文</span>
+                  </div>
+                </template>
+                <n-empty v-else description="本会话没有思考记录（该工具/模型未开启思考模式，或思考内容不可读）" style="padding:60px 0" />
+              </div>
+              <!-- 思考索引导航 -->
+              <aside v-if="thinkingMsgs.length > 1" class="anchor-nav think-nav">
+                <div class="dim small an-head">思考索引 · {{ thinkingMsgs.length }}</div>
+                <button
+                  v-for="(m, i) in thinkingMsgs" :key="i"
+                  class="an-item" :title="m.text.slice(0, 120)"
+                  @click="jumpToThink(i)"
+                >
+                  <span class="an-idx think-idx-dot">{{ String(i + 1).padStart(2, '0') }}</span>
+                  <span class="an-text">{{ m.text.replace(/\s+/g, ' ').slice(0, 26) }}</span>
+                </button>
+              </aside>
+            </div>
             <!-- System -->
             <div v-else-if="detailTab === 'system'">
               <div v-if="systemMsgs.length">
@@ -574,11 +728,12 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 提炼弹窗：圈选 user/assistant 消息 → 预填知识卡片 -->
+    <!-- 提炼弹窗：圈选 user/assistant 消息 → 三种产物（知识卡片/总结文档/记忆条目） -->
     <div v-if="distillOpen" class="modal-mask" @click.self="distillOpen = false">
       <div class="modal card">
-        <div class="insp-title">提炼为知识卡片</div>
+        <div class="insp-title">提炼会话</div>
         <div class="dim small" style="margin-top:4px">只圈选用户的文本与助手的正文（不含工具调用与系统注入）。勾选变化会重新生成正文预填，可在正文里继续手工编辑。</div>
+        <n-select v-model:value="distillProduct" :options="productOptions" size="small" round style="margin-top:10px; width: 260px" />
         <n-checkbox-group :value="distillSel" @update:value="onDistillSelChange">
           <div class="distill-list">
             <label v-for="m in distillMsgs" :key="m.seq" class="distill-item">
@@ -588,14 +743,46 @@ onMounted(async () => {
             </label>
           </div>
         </n-checkbox-group>
-        <n-input v-model:value="distillTitle" placeholder="卡片标题" size="small" round style="margin-top:12px" />
-        <n-input v-model:value="distillTags" placeholder="标签（逗号分隔）" size="small" round style="margin-top:8px" />
-        <n-input v-model:value="distillBody" type="textarea" placeholder="正文（Markdown）" :autosize="{ minRows: 6, maxRows: 14 }" style="margin-top:8px" />
+        <n-input v-model:value="distillTitle" :placeholder="distillProduct === 'memory' ? '条目标题' : '标题'" size="small" round style="margin-top:12px" />
+        <n-input v-if="distillProduct !== 'memory'" v-model:value="distillTags" placeholder="标签（逗号分隔）" size="small" round style="margin-top:8px" />
+        <n-input v-if="distillProduct === 'summary'" v-model:value="distillProject" placeholder="所属项目路径（可选）" size="small" round style="margin-top:8px" />
+
+        <!-- 记忆条目：目标 + 模板 + diff 预览 -->
+        <template v-if="distillProduct === 'memory'">
+          <div class="mem-row" style="margin-top:8px">
+            <span class="dim small">写入目标</span>
+            <n-select v-model:value="memTarget" :options="memTargetOptions" size="small" style="flex:1" placeholder="选择记忆文件" />
+          </div>
+          <div class="mem-row" style="margin-top:8px">
+            <span class="dim small">格式模板</span>
+            <n-select v-model:value="memTplKey" :options="MEM_TEMPLATES.map((m) => ({ label: m.label, value: m.key }))" size="small" style="flex:1" />
+          </div>
+          <n-input v-if="memTplKey === 'custom'" v-model:value="memTplCustom" type="textarea" placeholder="自定义模板，支持占位符 {date} {title} {summary} {source}" :autosize="{ minRows: 2, maxRows: 5 }" style="margin-top:8px" />
+          <div v-else class="dim small mono" style="margin-top:8px; white-space: pre-wrap;">→ {{ memTplText.replace('{date}', '2026-10-07').replace('{title}', '标题').replace('{summary}', '摘要内容').replace('{source}', '工具「会话」') }}</div>
+          <div v-if="!memTargets.length" class="dim small" style="margin-top:8px">没有可写回的记忆文件（各工具记忆页签下才有可写目标）。</div>
+          <div v-if="memDiff" class="mem-diff">
+            <template v-for="(l, i) in memDiff" :key="i">
+              <div v-if="l.gap" class="dl-gap">…（省略 {{ l.gap }} 行相同内容）</div>
+              <div v-else class="dl" :class="l.op">{{ l.op === 'add' ? '+' : l.op === 'del' ? '-' : ' ' }} {{ l.text }}</div>
+            </template>
+          </div>
+          <div v-if="memConflict" class="mem-warn">⚠ 该文件在扫描后被外部修改过——写入会被拒绝，请先到总览页重新扫描。</div>
+          <div v-if="!memAllowWrite" class="dim small" style="margin-top:6px">写回开关未开启（walle write-enable）——可先预览 diff，写入需要开启写回。</div>
+        </template>
+
+        <n-input v-model:value="distillBody" type="textarea" :placeholder="distillProduct === 'memory' ? '记忆条目内容（{summary} 占位符引用此内容）' : '正文（Markdown）'" :autosize="{ minRows: 6, maxRows: 14 }" style="margin-top:8px" />
         <div class="dim small" style="margin-top:8px" v-if="!llmConfigured">未配置大模型（设置页可配 OpenAI 兼容接口）——当前为手动提炼模式，直接编辑上方正文即可。</div>
         <div class="modal-act">
           <n-button v-if="llmConfigured" size="tiny" round type="info" secondary :loading="llmGenerating" :disabled="!distillSel.length" @click="aiSummarize">✦ AI 生成摘要</n-button>
-          <n-button size="tiny" round @click="distillOpen = false">取消</n-button>
-          <n-button size="tiny" round type="primary" :loading="distillSaving" :disabled="!distillSel.length || !distillTitle.trim()" @click="saveDistill">存入知识库</n-button>
+          <template v-if="distillProduct === 'memory'">
+            <n-button size="tiny" round :loading="memPreviewing" :disabled="memTarget == null || !distillBody.trim()" @click="previewMemDiff">预览 diff</n-button>
+            <n-button size="tiny" round @click="distillOpen = false">取消</n-button>
+            <n-button size="tiny" round type="primary" :loading="memWriting" :disabled="memTarget == null || !distillBody.trim() || !distillTitle.trim()" @click="writeMemory">写入记忆</n-button>
+          </template>
+          <template v-else>
+            <n-button size="tiny" round @click="distillOpen = false">取消</n-button>
+            <n-button size="tiny" round type="primary" :loading="distillSaving" :disabled="!distillSel.length || !distillTitle.trim()" @click="saveDistill">存入知识库</n-button>
+          </template>
         </div>
       </div>
     </div>
@@ -732,6 +919,36 @@ onMounted(async () => {
 .msg.md hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 12.5px; }
 .msg.tool { background: #fffbe8; border: 1px solid #f0e2ac; font-size: 12.5px; }
+/* 思考页签：内在独白——紫色只在此处出现 */
+.think-summary { margin-bottom: 10px; }
+.think-row { scroll-margin-top: 64px; margin-bottom: 10px; }
+.think-card {
+  background: #f9f6fd; border: 1px solid #e6dcf5; border-left: 3px solid #7d5bd0;
+  border-radius: 10px; padding: 9px 14px 10px; cursor: pointer;
+  transition: box-shadow .15s, border-color .15s;
+}
+.think-card:hover { border-color: #cbb6ea; box-shadow: 0 1px 6px rgba(125, 91, 208, .12); }
+.think-head { display: flex; gap: 8px; align-items: baseline; }
+.think-idx {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px; font-weight: 700; color: #7d5bd0; letter-spacing: .5px;
+}
+.think-title { font-size: 12.5px; font-weight: 700; color: #5b4394; }
+.think-chars { margin-left: auto; font-size: 11px; }
+.think-chev { color: #7d5bd0; font-size: 11px; transition: transform .15s; }
+.think-card.open .think-chev { transform: rotate(180deg); }
+.think-body {
+  margin-top: 6px; white-space: pre-wrap; word-break: break-word;
+  font-size: 12.5px; line-height: 1.65; color: #4a4550;
+}
+.think-body.clamped {
+  max-height: 300px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 99%); mask-image: linear-gradient(to bottom, #000 70%, transparent 99%);
+}
+.think-more { display: block; font-size: 11px; color: #7d5bd0; margin: 4px 0 0 16px; opacity: .8; }
+.think-nav .an-head { color: #5b4394; }
+.think-nav .an-item.on { background: rgba(125, 91, 208, .12); }
+.think-idx-dot { width: 24px; border-radius: 6px !important; background: rgba(125, 91, 208, .14); color: #7d5bd0 !important; }
 /* 概览 */
 .overview { max-width: 720px; }
 .ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
@@ -748,4 +965,13 @@ onMounted(async () => {
 .distill-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
 .distill-item:hover { background: var(--bg); }
 .distill-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--text); }
+/* 记忆条目写回 */
+.mem-row { display: flex; gap: 10px; align-items: center; }
+.mem-diff { margin-top: 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg); font: 11.5px/1.6 "SF Mono", ui-monospace, Consolas, monospace; padding: 8px 0; overscroll-behavior: contain; }
+.mem-diff .dl { padding: 0 12px; white-space: pre-wrap; word-break: break-all; }
+.mem-diff .dl.add { background: rgba(52, 199, 89, .12); color: #1d7a3a; }
+.mem-diff .dl.del { background: rgba(255, 59, 48, .1); color: #b3261e; text-decoration: line-through; }
+.mem-diff .dl.same { color: var(--dim); }
+.mem-diff .dl-gap { padding: 0 12px; color: var(--dim); font-style: italic; }
+.mem-warn { margin-top: 8px; font-size: 12px; color: #b25000; background: #fff3d6; border-radius: 8px; padding: 6px 10px; }
 </style>

@@ -37,7 +37,13 @@ export const TOOL_ROOT_DEFS: ToolRootDef[] = [
     key: 'opencode.data', tool: 'opencode', label: '数据根（会话库）', env: 'WALLE_OPENCODE_DATA',
     default: () => path.join(os.homedir(), '.local', 'share', 'opencode'),
   },
-  { key: 'workbuddy', tool: 'workbuddy', label: '国际版根（~/.workbuddy-ai）', default: () => path.join(os.homedir(), '.workbuddy-ai') },
+  {
+    key: 'workbuddy',
+    tool: 'workbuddy',
+    label: '国际版根（~/.workbuddy-ai）',
+    env: 'WALLE_WORKBUDDY',
+    default: () => path.join(os.homedir(), '.workbuddy-ai'),
+  },
   {
     key: 'workbuddy-cn', tool: 'workbuddy-cn', label: '国内版根（~/.workbuddy）', env: 'WALLE_WORKBUDDY_CN',
     default: () => path.join(os.homedir(), '.workbuddy'),

@@ -29,6 +29,8 @@ const toolName = (t: string) => (t === 'walle' ? '手动创建' : t);
 const items = ref<Asset[]>([]);
 const q = ref('');
 const tagFilter = ref<string | null>(null);
+/** 文档类型筛选（提炼二期）：card=知识卡片 / summary=总结文档 */
+const typeFilter = ref<'all' | 'card' | 'summary'>('all');
 const selected = ref<Asset | null>(null);
 const mdText = ref<string | null>(null);
 const rawFull = ref('');
@@ -69,8 +71,10 @@ function parseFm(raw: string): { meta: Record<string, string>; body: string } {
 }
 
 const tagsOf = (a: Asset): string[] => (frontmatterCache.value.get(a.id)?.tags.split(',').map((x) => x.trim()).filter(Boolean) ?? []);
+/** 文档类型：frontmatter type 字段，缺省 card（第一期卡片无 type） */
+const typeOf = (a: Asset): 'card' | 'summary' => (frontmatterCache.value.get(a.id)?.type === 'summary' ? 'summary' : 'card');
 /** tags 预解析缓存（loadAll 时从 CAS 原文提取） */
-const frontmatterCache = ref(new Map<number, { tags: string; title: string }>());
+const frontmatterCache = ref(new Map<number, { tags: string; title: string; type: string; project: string }>());
 
 const allTags = computed(() => {
   const s = new Set<string>();
@@ -82,6 +86,9 @@ const displayName = (a: Asset): string => frontmatterCache.value.get(a.id)?.titl
 
 const filtered = computed(() => {
   let list = items.value;
+  if (typeFilter.value !== 'all') {
+    list = list.filter((a) => typeOf(a) === typeFilter.value);
+  }
   if (tagFilter.value) {
     const idSet = new Set(items.value.filter((a) => tagsOf(a).includes(tagFilter.value!)).map((a) => a.id));
     list = list.filter((a) => idSet.has(a.id));
@@ -92,6 +99,10 @@ const filtered = computed(() => {
   }
   return list;
 });
+const typeCounts = computed(() => ({
+  card: items.value.filter((a) => typeOf(a) === 'card').length,
+  summary: items.value.filter((a) => typeOf(a) === 'summary').length,
+}));
 
 const sourceLink = computed(() => {
   const m = frontmatter.value;
@@ -101,12 +112,15 @@ const sourceLink = computed(() => {
 
 async function loadAll() {
   items.value = await (await fetch('/api/assets?kind=knowledge')).json();
-  // 提取 tags 到缓存（CAS 原文 frontmatter）
+  // 提取 tags/type 到缓存（CAS 原文 frontmatter）
   for (const a of items.value) {
     if (frontmatterCache.value.has(a.id) || !a.contentHash) continue;
     try {
       const d = await (await fetch(`/api/source?asset=${a.id}&raw=1`)).json();
-      if (d.content) frontmatterCache.value.set(a.id, { tags: parseFm(d.content).meta.tags ?? '', title: parseFm(d.content).meta.title ?? '' });
+      if (d.content) {
+        const m = parseFm(d.content).meta;
+        frontmatterCache.value.set(a.id, { tags: m.tags ?? '', title: m.title ?? '', type: m.type ?? 'card', project: m.project ?? '' });
+      }
     } catch { /* 忽略单条失败 */ }
   }
 }
@@ -203,7 +217,11 @@ onMounted(loadAll);
     </div>
 
     <div class="typerow">
-      <button class="tchip" :class="{ on: tagFilter === null }" @click="tagFilter = null">全部<span class="tchip-n">{{ items.length }}</span></button>
+      <button class="tchip" :class="{ on: typeFilter === 'all' }" @click="typeFilter = 'all'">全部<span class="tchip-n">{{ items.length }}</span></button>
+      <button class="tchip" :class="{ on: typeFilter === 'card' }" @click="typeFilter = 'card'">知识卡片<span class="tchip-n">{{ typeCounts.card }}</span></button>
+      <button class="tchip" :class="{ on: typeFilter === 'summary' }" @click="typeFilter = 'summary'">总结文档<span class="tchip-n">{{ typeCounts.summary }}</span></button>
+      <span class="tsep" />
+      <button class="tchip" :class="{ on: tagFilter === null }" @click="tagFilter = null">全部标签</button>
       <button v-for="t in allTags" :key="t" class="tchip" :class="{ on: tagFilter === t }" @click="tagFilter = t">
         #{{ t }}<span class="tchip-n">{{ items.filter((a) => tagsOf(a).includes(t)).length }}</span>
       </button>
@@ -219,9 +237,10 @@ onMounted(loadAll);
             <span class="arow-main">
               <span class="arow-name">
                 <span class="arow-name-t">{{ displayName(a) }}</span>
+                <span v-if="typeOf(a) === 'summary'" class="ktag ktag-sum">纪要</span>
                 <span v-for="t in tagsOf(a).slice(0, 3)" :key="t" class="ktag">#{{ t }}</span>
               </span>
-              <span class="dim small">{{ fmtTime(a.mtime) }} · {{ humanSize(a.size) }}</span>
+              <span class="dim small">{{ fmtTime(a.mtime) }} · {{ humanSize(a.size) }}<template v-if="typeOf(a) === 'summary' && frontmatterCache.get(a.id)?.project"> · {{ frontmatterCache.get(a.id)?.project }}</template></span>
             </span>
           </div>
           <n-empty v-if="!filtered.length" description="知识库为空——到会话页点「提炼」创建第一张卡片" style="padding:60px 0" />
@@ -233,6 +252,8 @@ onMounted(loadAll);
           <div class="insp-id">
             <div class="insp-title">{{ displayName(selected) }}</div>
             <div class="insp-sub">
+              <span class="ktag" :class="{ 'ktag-sum': typeOf(selected) === 'summary' }">{{ typeOf(selected) === 'summary' ? '总结文档' : '知识卡片' }}</span>
+              <span v-if="frontmatterCache.get(selected.id)?.project" class="mono">{{ frontmatterCache.get(selected.id)?.project }}</span>
               <span>{{ fmtTime(selected.mtime) }}</span>
               <span>{{ humanSize(selected.size) }}</span>
               <span v-for="t in tagsOf(selected)" :key="t" class="ktag">#{{ t }}</span>
@@ -311,6 +332,8 @@ onMounted(loadAll);
 .arow-name { font-size: 13.5px; font-weight: 600; display: flex; gap: 8px; align-items: center; min-width: 0; flex-wrap: wrap; }
 .arow-name-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ktag { flex-shrink: 0; font-size: 10px; font-weight: 500; color: var(--accent); background: rgba(0, 113, 227, .08); border-radius: 4px; padding: 0 4px; line-height: 14px; }
+.ktag-sum { color: #7d5bd0; background: rgba(125, 91, 208, .1); }
+.tsep { flex: 0 0 1px; height: 18px; background: var(--border); margin: 0 8px; }
 
 .inspector { flex: 1 1 64%; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }
 .empty-detail { align-items: center; justify-content: center; }
