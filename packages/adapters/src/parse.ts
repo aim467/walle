@@ -667,3 +667,130 @@ export function parseCursorTranscript(contentPath: string, composerId: string): 
   }
   return { docs, sessions };
 }
+
+// ============================== Cline（v1.24）==============================
+// ~/.cline/data/sessions/<sessionId>/<sessionId>.messages.json 是会话正文（明文 JSON），
+// <sessionId>.json 是会话元数据（标题/用量/项目，noDocs 合并到会话资产）。
+// 流式 chunk 日志（apps/<name>/sessions/*.jsonl）与 data/db/*.db 均为内部运行时产物，不收。
+
+/** 读整个 JSON 文件（损坏/缺失返回 null） */
+function readJsonFile(contentPath: string): unknown | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(contentPath, 'utf8');
+  } catch {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+interface ClineContentItem {
+  type: string;
+  text?: string;
+  thinking?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  content?: unknown;
+}
+
+/** <user_input mode="act">…</user_input> 注入包装 → 剥壳留正文（与 Cursor 转录同口径） */
+function stripClineUserInput(text: string): string {
+  const m = text.match(/^<user_input[^>]*>([\s\S]*?)<\/user_input>\s*$/);
+  return m ? m[1] : text;
+}
+
+/** tool_result 的 content 数组（[{query,result}] 或 [{type,text}]）拍平为可索引文本 */
+function clineToolResultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const c of content) {
+    if (c == null || typeof c !== 'object') continue;
+    const o = c as Record<string, unknown>;
+    if (typeof o.result === 'string') parts.push(o.result);
+    else if (typeof o.text === 'string') parts.push(o.text);
+  }
+  return parts.join('\n');
+}
+
+/** Cline 会话正文：messages JSON（单会话一文件，subId = session_id） */
+export function parseClineSession(contentPath: string, mode: ParseMode): ParsedResult | null {
+  void mode;
+  const j = readJsonFile(contentPath) as { sessionId?: unknown; messages?: unknown } | null;
+  if (!j) return null;
+  const subId = typeof j.sessionId === 'string' && j.sessionId ? j.sessionId : null;
+  if (!Array.isArray(j.messages)) return null;
+  const docs: ParsedDoc[] = [];
+  let seq = 0;
+  for (const m of j.messages) {
+    if (m == null || typeof m !== 'object') continue;
+    const msg = m as { role?: unknown; ts?: unknown; content?: unknown };
+    const role = msg.role === 'user' || msg.role === 'assistant' ? msg.role : null;
+    if (!role || !Array.isArray(msg.content)) continue;
+    const ts = toIso(msg.ts);
+    for (const c of msg.content as ClineContentItem[]) {
+      if (c == null || typeof c !== 'object') continue;
+      if (c.type === 'text' && typeof c.text === 'string' && c.text.trim()) {
+        const text = role === 'user' ? stripClineUserInput(c.text) : c.text;
+        docs.push({ subId: subId ?? undefined, docType: 'session_message', seq: seq++, role, ts, text });
+      } else if (c.type === 'thinking' && typeof c.thinking === 'string' && c.thinking.trim()) {
+        docs.push({ subId: subId ?? undefined, docType: 'session_message', seq: seq++, role: 'thinking', ts, text: c.thinking });
+      } else if (c.type === 'tool_use') {
+        const name = typeof c.name === 'string' ? c.name : 'unknown';
+        const args = c.input == null ? '' : JSON.stringify(c.input);
+        docs.push({ subId: subId ?? undefined, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[调用 ${name}]${args ? ' ' + args : ''}` });
+        for (const p of extractInputPaths(c.input)) {
+          docs.push({ subId: subId ?? undefined, docType: 'session_file', seq: seq++, role: 'tool', ts, text: p });
+        }
+      } else if (c.type === 'tool_result') {
+        const name = typeof c.name === 'string' ? c.name : 'unknown';
+        const output = clineToolResultText(c.content);
+        docs.push({ subId: subId ?? undefined, docType: 'session_message', seq: seq++, role: 'tool', ts, text: `[结果 ${name}]${output ? '\n' + output : ''}` });
+      }
+    }
+  }
+  const sessions: SessionMetaRow[] = subId
+    ? [{ subId, title: null, startedAt: null, projectPath: null, messageCount: docs.length }]
+    : [];
+  return { docs, sessions };
+}
+
+/** Cline 会话元数据：<sessionId>.json（标题/项目/用量权威来源，noDocs 合并到 messages 资产） */
+export function parseClineSessionMeta(contentPath: string): ParsedResult | null {
+  const j = readJsonFile(contentPath) as Record<string, unknown> | null;
+  if (!j) return null;
+  const subId = typeof j.session_id === 'string' && j.session_id ? j.session_id : null;
+  if (!subId) return null;
+  const meta = (j.metadata ?? {}) as Record<string, unknown>;
+  const tokensIn = numOf(meta.tokensIn);
+  const tokensOut = numOf(meta.tokensOut);
+  const usage: TokenUsage | null = tokensIn != null || tokensOut != null
+    ? {
+        input: tokensIn,
+        output: tokensOut,
+        cost: numOf(meta.totalCost),
+        total: tokensIn != null && tokensOut != null ? tokensIn + tokensOut : null,
+      }
+    : null;
+  return {
+    docs: [],
+    sessions: [
+      {
+        subId,
+        title: typeof meta.title === 'string' && meta.title.trim() ? meta.title.trim() : (typeof j.prompt === 'string' && j.prompt.trim() ? j.prompt.trim() : null),
+        startedAt: toIso(j.started_at),
+        model: typeof j.model === 'string' ? j.model : null,
+        projectPath: typeof j.cwd === 'string' ? j.cwd : null,
+        messageCount: null,
+        usage,
+        noDocs: true,
+      },
+    ],
+  };
+}

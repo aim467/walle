@@ -151,6 +151,9 @@ INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p2
 INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p3', 'oc_msg2', 'oc_sess1', '{"type":"patch","hash":"fixturehash","files":["D:/fixture/proj/src/style.css"]}', '2026-09-05T12:24:20.000Z');`);
   db.close();
 }
+write('opencode/skills/hyperframes/SKILL.md', '---\nname: hyperframes\ndescription: fixture opencode skill\n---\n\nopencode skill body\n');
+write('opencode/skills/hyperframes/templates/t1.html', '<p>fixture template</p>\n');
+
 write('opencode-data/auth.json', JSON.stringify({ 'opencode-go': { access_token: 'oc-fixture-token-0000000000000000' } }, null, 2));
 
 // ---------- cursor（配置根 + 应用根） ----------
@@ -338,6 +341,44 @@ INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at)
   write('project-alpha/.agents/skills/proj-fixer/SKILL.md', '---\nname: proj-fixer\ndescription: fixture project skill\n---\n\nproject skill body fixture-proj-skill。\n');
   // 附属文件：项目技能目录内脚本不得成为独立资产（对齐全局 agents 适配器口径）
   write('project-alpha/.agents/skills/proj-fixer/scripts/run.cjs', 'console.log("fixture");\n');
+}
+
+// ---------- cline（v1.24：Cline CLI/desktop 家目录 ~/.cline） ----------
+// 结构对应真机实测：data/sessions/<id>/<id>.json（元数据）+ <id>.messages.json（正文）；
+// data/db、data/cache、apps/*/sessions 流式日志为运行时产物，固件故意放入以验证不入库。
+{
+  const sid = '1791304315653_z6w4w';
+  write('cline/data/sessions/' + sid + '/' + sid + '.json', JSON.stringify({
+    version: 1, session_id: sid, source: 'vscode', pid: 12345,
+    started_at: '2026-10-06T16:32:02.663Z', exit_code: null, status: 'idle', interactive: true,
+    provider: 'cline', model: 'anthropic/claude-sonnet-5',
+    cwd: 'C:/fixture/demo', workspace_root: 'C:/fixture/demo',
+    prompt: '审查 fixture 会话解析', metadata: { title: '审查 fixture 会话解析', tokensIn: 1200, tokensOut: 340, totalCost: 0.02 },
+  }, null, 2));
+  write('cline/data/sessions/' + sid + '/' + sid + '.messages.json', JSON.stringify({
+    version: 1, sessionId: sid,
+    messages: [
+      { id: 'm1', role: 'user', ts: 1791304323287, content: [{ type: 'text', text: '<user_input mode="act">审查 fixture 会话解析</user_input>' }] },
+      { id: 'm2', role: 'assistant', ts: 1791304341906, content: [
+        { type: 'thinking', thinking: '需要先读会话文件再下结论。' },
+        { type: 'tool_use', id: 'read_files_1', name: 'read_files', input: { files: [{ path: 'C:/fixture/demo/parse.ts' }] } },
+        { type: 'tool_result', tool_use_id: 'read_files_1', name: 'read_files', content: [{ query: 'C:/fixture/demo/parse.ts', result: 'export function parseFixture() {}' }] },
+        { type: 'text', text: '解析器实现正确，覆盖三种内容类型。' },
+      ] },
+    ],
+    system_prompt: 'fixture system prompt',
+  }, null, 2));
+  // 无 messages 正文的孤儿元数据（索引回退挂回元数据资产本身）
+  write('cline/data/sessions/1790000000000_orphan/1790000000000_orphan.json', JSON.stringify({
+    version: 1, session_id: '1790000000000_orphan', source: 'desktop', started_at: '2026-10-05T10:00:00.000Z',
+    status: 'idle', provider: 'cline', model: 'auto', cwd: 'C:/fixture/other', prompt: '孤儿会话',
+    metadata: { title: '孤儿会话' },
+  }, null, 2));
+  write('cline/data/globalState.json', JSON.stringify({ clineVersion: '4.1.22', telemetrySetting: 'disabled' }, null, 2));
+  write('cline/data/secrets.json', JSON.stringify({ clineApiKey: 'sk-fixture000000000000000000000000000000' }, null, 2));
+  // 运行时噪音：不入库
+  write('cline/data/db/sessions.db', 'not a real sqlite - fixture noise');
+  write('cline/apps/kanban/sessions/session_1.jsonl', JSON.stringify({ ts: 1, stream: 'chat_done', chunk: '{}' }) + '\n');
 }
 
 console.log(`fixtures 已生成: ${fixtures}`);

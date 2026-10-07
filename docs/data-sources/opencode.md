@@ -7,6 +7,9 @@
 | 根目录 | 配置根 `~/.config/opencode`；数据根 `~/.local/share/opencode` |
 | 写回评估 | 见文末，P4 前只读 |
 
+## skills/<name>/SKILL.md（v1.24 补，用户指正）
+
+opencode 有自己的技能目录：配置根 `~/.config/opencode/skills/<name>/SKILL.md`（真机实测 hyperframes-creative，含 templates/scripts 等附属目录）。采集口径与其他适配器一致：每技能一个资产（只收 SKILL.md，附属文件不收），技能名取 SKILL.md 父目录。它是 opencode 自有技能（目录副本语义），与 ZCode 符号链接接入共享库的形态并存。
 ## 1. 资产清单
 
 | 路径 | kind | 格式 | 说明 |

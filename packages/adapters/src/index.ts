@@ -7,9 +7,10 @@ import { workbuddyAdapter } from './workbuddy.js';
 import { workbuddyCnAdapter } from './workbuddy-cn.js';
 import { agentsAdapter } from './agents.js';
 import { knowledgeAdapter } from './knowledge.js';
+import { clineAdapter } from './cline.js';
 
 /** 已注册适配器（P2：+cursor / +opencode；P5：+workbuddy；P5.2：+agents 共享技能库；v1.12：+workbuddy-cn 国内版账户；v1.18：+walle 知识库） */
-export const adapters: Adapter[] = [codexAdapter, zcodeAdapter, cursorAdapter, opencodeAdapter, workbuddyAdapter, workbuddyCnAdapter, agentsAdapter, knowledgeAdapter];
+export const adapters: Adapter[] = [codexAdapter, zcodeAdapter, cursorAdapter, opencodeAdapter, workbuddyAdapter, workbuddyCnAdapter, agentsAdapter, knowledgeAdapter, clineAdapter];
 
-export { codexAdapter, zcodeAdapter, cursorAdapter, opencodeAdapter, workbuddyAdapter, workbuddyCnAdapter, agentsAdapter, knowledgeAdapter };
+export { codexAdapter, zcodeAdapter, cursorAdapter, opencodeAdapter, workbuddyAdapter, workbuddyCnAdapter, agentsAdapter, knowledgeAdapter, clineAdapter };
 export { TOOL_ROOT_DEFS, resolveToolRoot, type ToolRootDef } from './roots.js';

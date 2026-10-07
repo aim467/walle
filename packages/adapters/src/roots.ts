@@ -45,6 +45,13 @@ export const TOOL_ROOT_DEFS: ToolRootDef[] = [
     default: () => path.join(os.homedir(), '.workbuddy-ai'),
   },
   {
+    key: 'cline',
+    tool: 'cline',
+    label: 'Cline 根（~/.cline）',
+    env: 'WALLE_CLINE',
+    default: () => path.join(os.homedir(), '.cline'),
+  },
+  {
     key: 'workbuddy-cn', tool: 'workbuddy-cn', label: '国内版根（~/.workbuddy）', env: 'WALLE_WORKBUDDY_CN',
     default: () => path.join(os.homedir(), '.workbuddy'),
   },

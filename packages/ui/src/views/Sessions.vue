@@ -10,6 +10,7 @@ import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
+import clineLogo from '../assets/logos/cline.png';
 
 interface Hit {
   assetId: number; subId: string; tool: string; kind: string; role: string | null;
@@ -46,6 +47,7 @@ const TOOLS: ToolDef[] = [
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo, letter: 'O', color: '#111' },
   { id: 'workbuddy', name: 'WorkBuddy 国际版', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
   { id: 'workbuddy-cn', name: 'WorkBuddy 国内版', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#34c759,#0a84ff)' },
+  { id: 'cline', name: 'Cline', logo: clineLogo, letter: 'C', color: '#1e1e2e' },
 ];
 
 const activeTool = ref<string | null>(null); // null = 全部工具

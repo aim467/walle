@@ -22,6 +22,8 @@ process.env.WALLE_OPENCODE_DATA = path.join(fixtures, 'opencode-data');
 process.env.WALLE_WORKBUDDY_CN = path.join(fixtures, 'workbuddy-home');
 // walle 知识库源指向固件，绝不读真实 ~/.walle/knowledge
 process.env.WALLE_KNOWLEDGE = path.join(fixtures, 'knowledge');
+// cline 根重定向到固件，绝不读取真机 ~/.cline
+process.env.WALLE_CLINE = path.join(fixtures, 'cline');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));
@@ -33,6 +35,7 @@ const roots = {
   'workbuddy-cn': path.join(fixtures, 'workbuddy-home'),
   workbuddy: path.join(fixtures, 'workbuddy'),
   agents: path.join(fixtures, 'agents-store'),
+  cline: path.join(fixtures, 'cline'),
 };
 // 项目级探测默认禁用（线索来自 session_meta.project_path，真机索引后才启用）；
 // 需要项目级采集的测试显式传入固件项目目录，其余测试保持完全隔离。
@@ -322,6 +325,50 @@ test('workbuddy 会话：DB 标题合并 / ai-title 兜底 / 剥离注入块', (
   const think = result.docs.find((d) => d.role === 'thinking');
   assert.ok(think && think.text.includes('I should check the threshold'), '工具前独白应为 thinking 文档');
   assert.ok(asstTexts.some((t) => t.includes('语义检索阈值已确认')), '正常助手回复应保留');
+});
+
+test('cline 会话：messages 正文 + meta 标题/用量合并 + 运行时噪音不入库', () => {
+  const rows = store.listSessions({ limit: 300 });
+  const c = rows.find((s) => s.tool === 'cline' && s.subId === '1791304315653_z6w4w');
+  assert.ok(c, 'cline 会话应入库');
+  assert.equal(c.title, '审查 fixture 会话解析', 'meta 标题应 noDocs 合并到 messages 资产');
+  assert.ok(c.assetPath.includes('.messages.json'), `会话应挂到 messages 资产，实际 ${c.assetPath}`);
+  assert.equal(c.projectPath, 'C:/fixture/demo', '项目路径来自 meta cwd');
+  assert.ok(c.usage && c.usage.input === 1200 && c.usage.output === 340 && c.usage.total === 1540, '用量来自 meta tokensIn/tokensOut');
+  // 孤儿 meta：无 messages 正文的会话仍出现在清单（挂回元数据资产本身）
+  const orphan = rows.find((s) => s.tool === 'cline' && s.subId === '1790000000000_orphan');
+  assert.ok(orphan, '孤儿 meta 会话应保留在清单');
+  assert.equal(orphan.title, '孤儿会话', '孤儿会话标题来自 meta');
+
+  // 正文解析：user_input 剥壳 / thinking / tool_use / tool_result
+  const cl = adapters.find((a) => a.id === 'cline');
+  const asset = store.listAssets({ tool: 'cline', kind: 'session', limit: 20 }).find((a) => a.path.endsWith('.messages.json'));
+  assert.ok(asset, 'messages 文件应为 session 资产');
+  const result = cl.parse(cas.pathFor(asset.contentHash), { kind: 'session', path: asset.path, tool: 'cline' }, 'read');
+  assert.ok(result, 'cline messages 应可解析');
+  const user = result.docs.find((d) => d.role === 'user');
+  assert.ok(user && user.text.includes('审查 fixture 会话解析') && !user.text.includes('<user_input'), 'user_input 包装应剥离');
+  assert.ok(result.docs.some((d) => d.role === 'thinking' && d.text.includes('需要先读会话文件')), 'thinking 应入文档');
+  assert.ok(result.docs.some((d) => d.role === 'tool' && d.text.includes('[调用 read_files]')), 'tool_use 应转 tool 文档');
+  assert.ok(result.docs.some((d) => d.role === 'tool' && d.text.includes('[结果 read_files]') && d.text.includes('parseFixture')), 'tool_result 应转 tool 文档');
+  assert.ok(result.docs.some((d) => d.role === 'assistant' && d.text.includes('解析器实现正确')), '助手回复应保留');
+
+  // 运行时噪音与敏感标记
+  const all = store.listAssets({ tool: 'cline', limit: 100 });
+  assert.ok(!all.some((a) => a.path.includes('data/db')), 'data/db 运行时库不入库');
+  assert.ok(!all.some((a) => a.path.includes('apps/')), 'apps 流式日志不入库');
+  const secret = all.find((a) => a.path === 'data/secrets.json');
+  assert.ok(secret && secret.sensitive === 1, 'secrets.json 应标记敏感');
+  const gs = all.find((a) => a.path === 'data/globalState.json');
+  assert.ok(gs && gs.kind === 'config', 'globalState.json 应为 config');
+});
+
+test('opencode skills：配置根 skills/<name>/SKILL.md 入库，附属文件不收', () => {
+  const all = store.listAssets({ tool: 'opencode', kind: 'skill', limit: 20 });
+  const sk = all.find((a) => a.path === 'skills/hyperframes/SKILL.md');
+  assert.ok(sk, 'opencode 配置根技能应入库');
+  assert.equal(sk.name, 'hyperframes', '技能名取 SKILL.md 父目录');
+  assert.ok(!store.listAssets({ tool: 'opencode', limit: 100 }).some((a) => a.path.includes('templates/')), '附属文件不入库');
 });
 
 test('read 模式解析：会话消息完整返回', () => {

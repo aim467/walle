@@ -15,7 +15,9 @@ skills CLI（vercel-labs/skills）把技能安装到 `~/.agents/skills`，再接
 |---|---|---|
 | Codex CLI 0.160 | **原生发现**：直接扫描 `~/.agents/skills` | codex.exe 二进制中硬编码 `.agents/skills` 技能发现路径（与 `.codex/skills` 并列）；`~/.codex` 下无链接也无技能目录，但 CLI 内可用 |
 | ZCode | **符号链接** | `~/.zcode/skills/find-skills`、`grill-me` → `~/.agents/skills/*` |
-| 其他（lock 文件记录） | skills CLI 的 `lastSelectedAgents` 含 amp/cline/cursor/droid/gemini-cli 等 | `~/.agents/.skill-lock.json` |
+| Cline（用户确认） | **原生发现**：读 `~/.agents/skills`，`.cline` 下不存技能 | 2026-10-07 用户确认；walle 技能面板按「原生发现」展示，无链接接入动作 |
+| opencode（用户确认） | **双通道**：原生探测 `~/.agents/skills` + 自有 `~/.config/opencode/skills/` 目录 | 2026-10-07 用户确认；自有目录技能为目录副本语义，共享库技能按「原生发现」展示 |
+| 其他（lock 文件记录） | skills CLI 的 `lastSelectedAgents` 含 amp/cursor/droid/gemini-cli 等 | `~/.agents/.skill-lock.json` |
 
 **对 walle 的含义**：只扫各工具目录会漏掉"工具实际可用但目录里不存在"的技能（如 Codex 与 grill-me）。因此 `~/.agents` 必须作为独立数据源（tool=agents）扫描，技能管理面板按 realpath 聚合本体与各工具接入。
 

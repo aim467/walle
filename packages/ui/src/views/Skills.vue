@@ -13,6 +13,7 @@ import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import agentsLogo from '../assets/logos/agents.svg';
+import clineLogo from '../assets/logos/cline.png';
 
 interface SkillEntry { tool: string; assetId: number; path: string; abs: string; project: boolean; linked: boolean; size: number; mtime: string }
 interface SkillGroup { key: string; name: string; description: string | null; storePath: string | null; entries: SkillEntry[] }
@@ -26,12 +27,13 @@ const TOOLS: ToolDef[] = [
   { id: 'workbuddy', name: 'WorkBuddy 国际版', logo: workbuddyLogo },
   { id: 'workbuddy-cn', name: 'WorkBuddy 国内版', logo: workbuddyLogo },
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo },
+  { id: 'cline', name: 'Cline', logo: clineLogo },
 ];
 const toolDef = (t: string) => TOOLS.find((x) => x.id === t);
 const toolName = (t: string) => toolDef(t)?.name ?? t;
 const toolLogo = (t: string) => toolDef(t)?.logo;
 /** 接入工具盒子只展示 AI 工具（agents 是存储库本身，不算接入方） */
-const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn'];
+const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline'];
 
 const skills = ref<SkillGroup[]>([]);
 const loading = ref(false);
@@ -76,11 +78,11 @@ function groupLogo(g: SkillGroup): string | undefined {
   return g.storePath ? agentsLogo : toolLogo(g.entries[0]?.tool ?? '');
 }
 
-/** 接入工具状态：链接/目录副本为真接入；Codex 对共享库技能是原生发现（codex.exe 硬编码 .agents/skills，实测） */
+/** 接入工具状态：链接/目录副本为真接入；Codex/Cline/opencode 对共享库技能是原生发现（codex.exe 硬编码 .agents/skills 实测；Cline 读 .agents 且 .cline 不存技能、opencode 双通道探测 .agents + 自有 skills 目录，用户确认） */
 function toolState(g: SkillGroup, toolId: string): { on: boolean; label: string } {
   const e = g.entries.find((x) => x.tool === toolId);
   if (e) return { on: true, label: e.linked ? '符号链接接入' : e.project ? '项目本地' : '目录副本' };
-  if (toolId === 'codex' && g.storePath) return { on: true, label: '原生发现' };
+  if ((toolId === 'codex' || toolId === 'cline' || toolId === 'opencode') && g.storePath) return { on: true, label: '原生发现' };
   return { on: false, label: '未接入' };
 }
 
@@ -94,9 +96,9 @@ function setTool(t: string | null) {
   }
 }
 
-/** 技能是否在某工具作用域内（Codex 含原生发现的共享库技能，与详情页口径一致） */
+/** 技能是否在某工具作用域内（Codex/Cline/opencode 含原生发现的共享库技能，与详情页口径一致） */
 function inToolScope(g: SkillGroup, toolId: string): boolean {
-  return g.entries.some((e) => e.tool === toolId) || (toolId === 'codex' && !!g.storePath);
+  return g.entries.some((e) => e.tool === toolId) || ((toolId === 'codex' || toolId === 'cline' || toolId === 'opencode') && !!g.storePath);
 }
 
 const scoped = computed(() => (activeTool.value ? skills.value.filter((s) => inToolScope(s, activeTool.value!)) : skills.value));
@@ -239,12 +241,12 @@ const hubSortOptions = [
   { label: '按下载量', value: 'downloads' },
 ];
 
-/** 接入工具矩阵：Codex 默认不勾（对共享库技能是原生发现），其余默认勾选 + 链接 */
+/** 接入工具矩阵：Codex 默认不勾（对共享库技能是原生发现），其余默认勾选 + 链接；Cline 不在列——原生读 ~/.agents/skills 且 .cline 不存技能，无接入动作 */
 const TARGET_DEFS = [
   { tool: 'codex', label: 'Codex CLI', hint: '原生发现 ~/.agents/skills，无需接入' },
   { tool: 'zcode', label: 'ZCode', hint: '~/.zcode/skills' },
   { tool: 'cursor', label: 'Cursor', hint: '~/.cursor/skills' },
-  { tool: 'opencode', label: 'OpenCode', hint: '~/.config/opencode/skills' },
+  { tool: 'opencode', label: 'OpenCode', hint: '~/.config/opencode/skills（另原生探测 ~/.agents/skills）' },
   { tool: 'workbuddy', label: 'WorkBuddy 国际版', hint: '~/.workbuddy-ai/skills' },
   { tool: 'workbuddy-cn', label: 'WorkBuddy 国内版', hint: '~/.workbuddy/skills' },
 ];

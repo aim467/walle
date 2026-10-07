@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "sessionId": "1791304315653_z6w4w",
+  "messages": [
+    {
+      "id": "m1",
+      "role": "user",
+      "ts": 1791304323287,
+      "content": [
+        {
+          "type": "text",
+          "text": "<user_input mode=\"act\">审查 fixture 会话解析</user_input>"
+        }
+      ]
+    },
+    {
+      "id": "m2",
+      "role": "assistant",
+      "ts": 1791304341906,
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "需要先读会话文件再下结论。"
+        },
+        {
+          "type": "tool_use",
+          "id": "read_files_1",
+          "name": "read_files",
+          "input": {
+            "files": [
+              {
+                "path": "C:/fixture/demo/parse.ts"
+              }
+            ]
+          }
+        },
+        {
+          "type": "tool_result",
+          "tool_use_id": "read_files_1",
+          "name": "read_files",
+          "content": [
+            {
+              "query": "C:/fixture/demo/parse.ts",
+              "result": "export function parseFixture() {}"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "解析器实现正确，覆盖三种内容类型。"
+        }
+      ]
+    }
+  ],
+  "system_prompt": "fixture system prompt"
+}
