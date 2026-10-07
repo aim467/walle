@@ -847,7 +847,12 @@ onMounted(async () => {
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
 }
-.m-avatar img { width: 100%; height: 100%; object-fit: cover; }
+/* 工具 logo 多为黑底透明 PNG（Cursor/OpenAI 等），直接贴深色头像会糊成黑块——
+   统一垫白色内圆片：外环保持助手深色身份，logo 任何底色都清晰 */
+.m-avatar img {
+  width: calc(100% - 6px); height: calc(100% - 6px); margin: 3px;
+  border-radius: 4.5px; background: #fff; object-fit: contain;
+}
 .m-main { flex: 1; min-width: 0; }
 .m-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 5px; }
 .m-name { font-size: 12.5px; font-weight: 700; letter-spacing: .3px; }
