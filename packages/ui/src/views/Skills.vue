@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue';
-import { NInput, NSelect, NEmpty, NButton, NDropdown, NTabs, NTab, NTag, NDataTable, NProgress, NModal, NCheckbox, NCheckboxGroup, NRadioGroup, NRadio, NRadioButton, useMessage } from 'naive-ui';
-import type { DataTableColumns } from 'naive-ui';
+import { ref, computed, onMounted } from 'vue';
+import UiButton from '../components/ui/Button.vue';
+import UiInput from '../components/ui/Input.vue';
+import UiBadge from '../components/ui/Badge.vue';
+import UiSelect from '../components/ui/Select.vue';
+import UiCheckbox from '../components/ui/Checkbox.vue';
+import UiDropdownMenu from '../components/ui/DropdownMenu.vue';
+import UiDialog from '../components/ui/Dialog.vue';
+import UiProgress from '../components/ui/Progress.vue';
+import UiEmpty from '../components/ui/Empty.vue';
+import { toast } from '../components/ui/toast';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -45,7 +53,7 @@ const selected = ref<SkillGroup | null>(null);
 const activeTab = ref<'overview' | 'markdown' | 'files' | 'usage'>('overview');
 const mdText = ref<string | null>(null);
 const mdLoading = ref(false);
-const message = useMessage();
+
 
 /** 分组状态按真实数据判定：共享库本体 > 符号链接接入 > 项目本地 > 目录副本（不硬造"有更新/冲突"） */
 function groupStatus(g: SkillGroup): 'store' | 'linked' | 'project' | 'copy' {
@@ -139,7 +147,7 @@ const moreOptions = [
   { label: '复制 Skill 标识', key: 'copy-id' },
   { label: '下载技能（zip）', key: 'download' },
   { label: '重新扫描共享库', key: 'rescan' },
-  { type: 'divider', key: 'd1' },
+  { label: '', key: 'd1', divider: true },
   { label: '同步到工具（即将推出）', key: 'sync', disabled: true },
   { label: '删除技能（即将推出）', key: 'delete', disabled: true },
 ];
@@ -183,26 +191,27 @@ async function loadDetail(g: SkillGroup) {
 }
 
 async function rescan() {
-  const done = message.loading('正在重新扫描共享库…', { duration: 0 });
-  try {
-    const d = await (await fetch('/api/scan?source=agents', { method: 'POST' })).json();
-    if (!d.ok) { message.error(d.error ?? '扫描失败'); return; }
-    message.success('共享库扫描完成');
-    await load();
-  } finally {
-    done();
-  }
+  const d = await (await fetch('/api/scan?source=agents', { method: 'POST' })).json();
+  if (!d.ok) { toast.error(d.error ?? '扫描失败'); return; }
+  toast.success('共享库扫描完成');
+  await load();
 }
 
 function copyText(text: string) {
   navigator.clipboard?.writeText(text).then(
-    function () { message.success('已复制'); },
-    function () { message.error('剪贴板不可用'); },
+    function () { toast.success('已复制'); },
+    function () { toast.error('剪贴板不可用'); },
   );
 }
 
+function togglePicked(path: string, on: boolean) {
+  picked.value = on ? [...picked.value, path] : picked.value.filter((x) => x !== path);
+}
+function toggleHubPicked(slug: string, on: boolean) {
+  hubPicked.value = on ? [...hubPicked.value, slug] : hubPicked.value.filter((x) => x !== slug);
+}
 function notYet(what: string) {
-  message.info(`${what}能力将在后续版本提供`);
+  toast.info(`${what}能力将在后续版本提供`);
 }
 
 /** 下载技能：优先共享库本体条目，打包其磁盘目录（后端回退 CAS 的 SKILL.md） */
@@ -268,12 +277,12 @@ function openImport() {
   hubTotal.value = 0;
 }
 async function searchHub() {
-  if (!hubKeyword.value.trim()) { message.warning('请输入搜索关键词'); return; }
+  if (!hubKeyword.value.trim()) { toast.warning('请输入搜索关键词'); return; }
   hubSearching.value = true;
   installResult.value = null;
   try {
     const d = await (await fetch(`/api/skills/hub/search?keyword=${encodeURIComponent(hubKeyword.value)}&page=1&sortBy=${hubSort.value}`)).json();
-    if (d.error) { message.error(d.error); return; }
+    if (d.error) { toast.error(d.error); return; }
     hubResults.value = d.skills ?? [];
     hubTotal.value = d.total ?? 0;
     hubPicked.value = [];
@@ -282,7 +291,7 @@ async function searchHub() {
   }
 }
 async function discoverSkills() {
-  if (!importUrl.value.trim()) { message.warning('请输入来源 URL'); return; }
+  if (!importUrl.value.trim()) { toast.warning('请输入来源 URL'); return; }
   discovering.value = true;
   installResult.value = null;
   try {
@@ -290,19 +299,19 @@ async function discoverSkills() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ url: importUrl.value }),
     })).json();
-    if (d.error) { message.error(d.error); return; }
+    if (d.error) { toast.error(d.error); return; }
     candidates.value = d.skills ?? [];
     importSource.value = d.source ?? '';
     picked.value = candidates.value.map((c) => c.path);
-    if (!candidates.value.length) message.info('该来源中未发现技能（无 SKILL.md）');
+    if (!candidates.value.length) toast.info('该来源中未发现技能（无 SKILL.md）');
   } finally {
     discovering.value = false;
   }
 }
 async function installSkills() {
   const isHub = importMode.value === 'hub';
-  if (isHub && !hubPicked.value.length) { message.warning('请勾选要安装的技能'); return; }
-  if (!isHub && !picked.value.length) { message.warning('请勾选要安装的技能'); return; }
+  if (isHub && !hubPicked.value.length) { toast.warning('请勾选要安装的技能'); return; }
+  if (!isHub && !picked.value.length) { toast.warning('请勾选要安装的技能'); return; }
   installing.value = true;
   try {
     const targets: ImportTarget[] = TARGET_DEFS
@@ -315,14 +324,14 @@ async function installSkills() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     })).json();
-    if (d.error) { message.error(d.error); return; }
+    if (d.error) { toast.error(d.error); return; }
     installResult.value = d.results ?? [];
     const ok = installResult.value.filter((r) => r.installed).length;
     if (ok) {
-      message.success(`已安装 ${ok} 个技能到共享库`);
+      toast.success(`已安装 ${ok} 个技能到共享库`);
       await load();
     } else {
-      message.error('安装失败，详见结果列表');
+      toast.error('安装失败，详见结果列表');
     }
   } finally {
     installing.value = false;
@@ -369,7 +378,7 @@ async function openPreview(f: SkillFile) {
   preview.value = { path: f.path, loading: true, text: '', truncated: false, size: f.size, isMd: /\.md$/i.test(f.path) };
   const d = await (await fetch(`/api/skills/file?asset=${entry.assetId}&path=${encodeURIComponent(f.path)}`)).json();
   if (preview.value.path !== f.path) return; // 用户已切到别的文件
-  if (d.error) { message.error(d.error); preview.value = null; return; }
+  if (d.error) { toast.error(d.error); preview.value = null; return; }
   const isMd = /\.md$/i.test(f.path);
   const text = isMd ? String(d.text ?? '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '') : String(d.text ?? '');
   preview.value = { path: f.path, loading: false, text, truncated: !!d.truncated, size: d.size ?? f.size, isMd };
@@ -383,8 +392,8 @@ async function openLocal() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ asset: entry.assetId }),
     })).json();
-    if (d.error) message.error(d.error);
-    else message.success('已在文件管理器中打开');
+    if (d.error) toast.error(d.error);
+    else toast.success('已在文件管理器中打开');
   } finally {
     openingLocal.value = false;
   }
@@ -422,13 +431,6 @@ function setTab(t: typeof activeTab.value) {
   if (t === 'files' && !files.value.length && !filesLoading.value) loadFiles();
 }
 
-const entryColumns: DataTableColumns<SkillEntry> = [
-  { title: '工具', key: 'tool', width: 110, render: (e) => toolName(e.tool) },
-  { title: '接入方式', key: 'linked', width: 90, render: (e) => (e.linked ? '符号链接' : e.project ? '项目本地' : '目录副本') },
-  { title: '路径', key: 'abs', ellipsis: { tooltip: true }, render: (e) => h('span', { class: 'mono' }, e.abs || e.path) },
-  { title: '大小', key: 'size', width: 70, render: (e) => fmtSize(e.size) },
-];
-
 onMounted(load);
 </script>
 
@@ -437,32 +439,40 @@ onMounted(load);
     <!-- 第一层：AI 工具 Tab（对齐资产库布局） -->
     <div class="toolbar glassbar">
       <div class="tabs-strip">
-        <button class="tab" :class="{ on: activeTool === null }" @click="setTool(null)">
+        <UiButton
+          size="sm" class="h-8 gap-1.5 px-3"
+          :variant="activeTool === null ? 'default' : 'ghost'"
+          @click="setTool(null)"
+        >
           <span class="tab-dot">A</span>
           <span class="tab-name">全部工具</span>
           <span class="tab-n">{{ stats.total }}</span>
-        </button>
-        <button
+        </UiButton>
+        <UiButton
           v-for="t in TOOLS" :key="t.id"
-          class="tab" :class="{ on: activeTool === t.id }" @click="setTool(t.id)"
+          size="sm" class="h-8 gap-1.5 px-3"
+          :variant="activeTool === t.id ? 'default' : 'ghost'"
+          @click="setTool(t.id)"
         >
           <img class="tab-logo" :src="t.logo" :alt="t.id">
           <span class="tab-name">{{ t.name }}</span>
           <span class="tab-n">{{ skills.filter((s) => inToolScope(s, t.id)).length }}</span>
-        </button>
+        </UiButton>
       </div>
-      <n-input v-model:value="q" placeholder="搜索技能…" size="small" round clearable class="search" />
+      <UiInput v-model:value="q" placeholder="搜索技能…" class="search" />
     </div>
 
     <!-- 第二层：状态筛选 + 页面动作 -->
     <div class="typerow">
-      <button
-        v-for="c in statusChips" :key="c.v"
-        class="tchip" :class="{ on: statusFilter === c.v }" @click="statusFilter = c.v"
-      >{{ c.label }}<span class="tchip-n">{{ c.n }}</span></button>
+      <UiButton
+        v-for="c in statusChips" :key="c.v" size="sm" class="h-7 gap-1.5 px-3"
+        :variant="statusFilter === c.v ? 'secondary' : 'ghost'"
+        :class="statusFilter === c.v ? '!bg-primary/10 !text-primary !font-semibold' : ''"
+        @click="statusFilter = c.v"
+      >{{ c.label }}<span class="tchip-n">{{ c.n }}</span></UiButton>
       <span class="flex1" />
-      <n-button size="tiny" round secondary @click="notYet('新建技能')">＋ 新建技能</n-button>
-      <n-button size="tiny" round secondary @click="openImport">↓ 导入技能</n-button>
+      <UiButton variant="secondary" @click="notYet('新建技能')">＋ 新建技能</UiButton>
+      <UiButton variant="secondary" @click="openImport">↓ 导入技能</UiButton>
     </div>
 
     <div class="body">
@@ -472,7 +482,7 @@ onMounted(load);
           <span class="lh-title">技能</span>
           <span class="lh-n">{{ filtered.length }} 项 · 数据来自本地扫描</span>
           <span class="flex1" />
-          <n-select v-model:value="sortBy" :options="sortOptions" size="medium" class="sortsel" />
+          <UiSelect v-model:value="sortBy" :options="sortOptions" class="sortsel" />
         </div>
         <div class="list-scroll">
           <div
@@ -483,11 +493,10 @@ onMounted(load);
             <span class="srow-main">
               <span class="srow-name">
                 <span class="srow-name-t">{{ s.name }}</span>
-                <n-tag size="tiny" round :bordered="false" :type="statusMeta[groupStatus(s)].type">
+                <UiBadge :type="statusMeta[groupStatus(s)].type">
                   {{ statusMeta[groupStatus(s)].label }}
-                </n-tag>
+                </UiBadge>
               </span>
-              <span class="srow-desc dim">{{ s.description ?? '（无描述）' }}</span>
             </span>
             <span class="srow-tools">
               <img
@@ -497,7 +506,7 @@ onMounted(load);
               <span v-if="s.entries.length > 3" class="dim small">+{{ s.entries.length - 3 }}</span>
             </span>
           </div>
-          <n-empty v-if="!filtered.length && !loading" description="没有匹配的技能" size="small" style="padding:36px 0" />
+          <UiEmpty v-if="!filtered.length && !loading" description="没有匹配的技能" size="small" style="padding:36px 0" />
         </div>
       </div>
 
@@ -511,10 +520,12 @@ onMounted(load);
               <div class="insp-desc dim">{{ selected.description ?? '（无描述）' }}</div>
             </div>
             <div class="insp-act">
-              <n-button size="tiny" round secondary @click="notYet('编辑技能')">编辑</n-button>
-              <n-dropdown trigger="click" :options="moreOptions" @select="onMore">
-                <n-button size="tiny" round secondary>···</n-button>
-              </n-dropdown>
+              <UiButton variant="secondary" @click="notYet('编辑技能')">编辑</UiButton>
+              <UiDropdownMenu :options="moreOptions" @select="onMore">
+                <template #trigger>
+                  <UiButton variant="secondary">···</UiButton>
+                </template>
+              </UiDropdownMenu>
             </div>
           </div>
           <div class="detail-sub">
@@ -527,10 +538,10 @@ onMounted(load);
             </span>
           </div>
           <div class="insp-tabs">
-            <button class="itab" :class="{ on: activeTab === 'overview' }" @click="setTab('overview')">概览</button>
-            <button class="itab" :class="{ on: activeTab === 'markdown' }" @click="setTab('markdown')">SKILL.md</button>
-            <button class="itab" :class="{ on: activeTab === 'files' }" @click="setTab('files')">文件</button>
-            <button class="itab" :class="{ on: activeTab === 'usage' }" @click="setTab('usage')">使用情况</button>
+            <UiButton size="sm" class="h-7 px-3" :variant="activeTab === 'overview' ? 'secondary' : 'ghost'" :class="activeTab === 'overview' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="setTab('overview')">概览</UiButton>
+            <UiButton size="sm" class="h-7 px-3" :variant="activeTab === 'markdown' ? 'secondary' : 'ghost'" :class="activeTab === 'markdown' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="setTab('markdown')">SKILL.md</UiButton>
+            <UiButton size="sm" class="h-7 px-3" :variant="activeTab === 'files' ? 'secondary' : 'ghost'" :class="activeTab === 'files' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="setTab('files')">文件</UiButton>
+            <UiButton size="sm" class="h-7 px-3" :variant="activeTab === 'usage' ? 'secondary' : 'ghost'" :class="activeTab === 'usage' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="setTab('usage')">使用情况</UiButton>
           </div>
 
           <div class="detail-body">
@@ -553,10 +564,19 @@ onMounted(load);
               </div>
 
               <div class="section-title">安装位置</div>
-              <n-data-table
-                size="small" :bordered="false" :single-line="false"
-                :columns="entryColumns" :data="selected.entries"
-              />
+              <table class="entry-table">
+                <thead>
+                  <tr><th>工具</th><th>接入方式</th><th>路径</th><th>大小</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="e in selected.entries" :key="e.tool + e.path">
+                    <td>{{ toolName(e.tool) }}</td>
+                    <td>{{ e.linked ? '符号链接' : e.project ? '项目本地' : '目录副本' }}</td>
+                    <td class="mono entry-path" :title="e.abs || e.path">{{ e.abs || e.path }}</td>
+                    <td>{{ fmtSize(e.size) }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </template>
 
             <!-- SKILL.md -->
@@ -565,11 +585,11 @@ onMounted(load);
                 <div class="md-toolbar">
                   <div class="md-toolbar-left">
                     <span class="file-pill mono">SKILL.md</span>
-                    <n-tag size="small" type="info" :bordered="false">Markdown</n-tag>
+                    <UiBadge type="info" size="small">Markdown</UiBadge>
                   </div>
                   <div class="md-toolbar-right">
-                    <n-button size="tiny" secondary @click="notYet('编辑')">编辑</n-button>
-                    <n-button size="tiny" secondary @click="mdText && copyText(mdText)">复制</n-button>
+                    <UiButton variant="secondary" @click="notYet('编辑')">编辑</UiButton>
+                    <UiButton variant="secondary" @click="mdText && copyText(mdText)">复制</UiButton>
                   </div>
                 </div>
                 <div class="md-scroll">
@@ -583,7 +603,7 @@ onMounted(load);
             <template v-else-if="activeTab === 'files'">
               <div class="files-head">
                 <div class="section-title" style="margin: 0">技能文件 <span class="dim small" style="font-weight: 400">{{ files.length }} 个</span></div>
-                <n-button size="tiny" round secondary :loading="openingLocal" @click="openLocal">⌖ 在本地打开</n-button>
+                <UiButton variant="secondary" :loading="openingLocal" @click="openLocal">⌖ 在本地打开</UiButton>
               </div>
               <div class="section-sub dim small">技能目录全部文件（含附属脚本/参考文档）；walle 入库仅收 SKILL.md（降噪）</div>
               <div v-if="filesLoading" class="dim small" style="padding:16px 0">加载中…</div>
@@ -593,7 +613,7 @@ onMounted(load);
                 <div v-if="!treeCollapsed" class="filetree">
                   <div class="filetree-head">
                     <span class="dim small">文件树</span>
-                    <n-button size="tiny" quaternary title="收起文件树，预览占满全宽" @click="treeCollapsed = true">«</n-button>
+                    <UiButton variant="ghost" title="收起文件树，预览占满全宽" @click="treeCollapsed = true">«</UiButton>
                   </div>
                   <template v-for="g in fileGroups" :key="g.dir">
                     <button
@@ -619,20 +639,20 @@ onMounted(load);
                 <div class="fpane">
                   <template v-if="preview">
                     <div class="fpreview-bar">
-                      <n-button
-                        v-if="treeCollapsed" size="tiny" quaternary class="tree-toggle"
+                      <UiButton
+                        v-if="treeCollapsed" variant="ghost" class="tree-toggle"
                         title="展开文件树" @click="treeCollapsed = false"
-                      >»</n-button>
+                      >»</UiButton>
                       <span class="mono fpreview-path" :title="preview.path">{{ preview.path }}</span>
                       <span class="dim small">{{ fmtSize(preview.size) }}{{ preview.truncated ? ' · 已截断（512KB）' : '' }}</span>
                       <span class="flex1" />
-                      <n-button size="tiny" quaternary @click="preview = null">关闭</n-button>
+                      <UiButton variant="ghost" @click="preview = null">关闭</UiButton>
                     </div>
                     <div v-if="preview.loading" class="dim small" style="padding:16px">加载中…</div>
                     <div v-else-if="preview.isMd" class="fpreview-md md-content" v-html="mdHtml(preview.text)"></div>
                     <pre v-else class="fpreview-code">{{ preview.text }}</pre>
                   </template>
-                  <n-empty v-else description="选择左侧文件预览" size="small" style="margin:auto" />
+                  <UiEmpty v-else description="选择左侧文件预览" size="small" style="margin:auto" />
                 </div>
               </div>
             </template>
@@ -652,11 +672,10 @@ onMounted(load);
                     </span>
                     <span class="usage-version dim">{{ toolState(selected, t).on ? toolState(selected, t).label : '未接入' }}</span>
                   </div>
-                  <n-progress
+                  <UiProgress
                     class="usage-line"
-                    type="line" :show-indicator="false" :height="7" :border-radius="5"
                     :percentage="toolState(selected, t).on ? 100 : 0"
-                    :color="toolState(selected, t).on ? '#4c91ef' : '#d3d7dc'"
+                    :on="toolState(selected, t).on"
                   />
                   <div class="usage-foot dim">
                     <span>{{ toolState(selected, t).on ? '接入正常' : '可接入' }}</span>
@@ -667,34 +686,32 @@ onMounted(load);
             </template>
           </div>
         </template>
-        <n-empty v-else description="从左侧选择一个技能" style="margin:auto" />
+        <UiEmpty v-else description="从左侧选择一个技能" style="margin:auto" />
       </div>
     </div>
 
     <!-- 导入技能向导 -->
-    <n-modal v-model:show="showImport" preset="card" title="导入技能（从互联网下载）" style="width: 660px; max-width: 92vw">
+    <UiDialog :open="showImport" title="导入技能（从互联网下载）" width="660px" @update:open="showImport = $event">
       <div class="import-step">
         <div class="step-title">1 · 来源</div>
-        <div class="mode-row">
-          <n-radio-group v-model:value="importMode" size="small" :disabled="installing">
-            <n-radio-button value="url">链接（GitHub / zip / SkillHub 页面）</n-radio-button>
-            <n-radio-button value="hub">SkillHub 搜索</n-radio-button>
-          </n-radio-group>
+        <div class="mode-row flex gap-2">
+          <UiButton size="sm" :disabled="installing" :variant="importMode === 'url' ? 'default' : 'ghost'" @click="importMode = 'url'">链接（GitHub / zip / SkillHub 页面）</UiButton>
+          <UiButton size="sm" :disabled="installing" :variant="importMode === 'hub' ? 'default' : 'ghost'" @click="importMode = 'hub'">SkillHub 搜索</UiButton>
         </div>
         <div v-if="importMode === 'url'" class="import-url-row">
-          <n-input
+          <UiInput
             v-model:value="importUrl" placeholder="GitHub 仓库（owner/repo 或链接，可带 /tree/ 子目录）、skillhub.cn/skills/<slug> 或任意 zip 直链"
-            size="small" :disabled="discovering || installing" @keydown.enter="discoverSkills"
+            :disabled="discovering || installing" @keydown.enter="discoverSkills"
           />
-          <n-button size="small" type="primary" :loading="discovering" :disabled="installing" @click="discoverSkills">发现技能</n-button>
+          <UiButton :loading="discovering" :disabled="installing" @click="discoverSkills">发现技能</UiButton>
         </div>
         <div v-else class="import-url-row">
-          <n-input
+          <UiInput
             v-model:value="hubKeyword" placeholder="搜索 SkillHub 技能（关键词）"
-            size="small" :disabled="hubSearching || installing" @keydown.enter="searchHub"
+            :disabled="hubSearching || installing" @keydown.enter="searchHub"
           />
-          <n-select v-model:value="hubSort" :options="hubSortOptions" size="small" class="hub-sort" :disabled="installing" />
-          <n-button size="small" type="primary" :loading="hubSearching" :disabled="installing" @click="searchHub">搜索</n-button>
+          <UiSelect v-model:value="hubSort" :options="hubSortOptions" class="hub-sort" :disabled="installing" />
+          <UiButton :loading="hubSearching" :disabled="installing" @click="searchHub">搜索</UiButton>
         </div>
       </div>
 
@@ -706,22 +723,22 @@ onMounted(load);
             <span v-else class="dim small" style="font-weight: 400">skillhub.cn · 匹配 {{ hubTotal }} 个（显示前 {{ hubResults.length }}）</span>
           </div>
           <div class="cand-list">
-            <n-checkbox-group v-if="importMode === 'url'" v-model:value="picked">
+            <div v-if="importMode === 'url'">
               <div v-for="c in candidates" :key="c.path" class="cand-row">
-                <n-checkbox :value="c.path" :label="c.name" />
+                <UiCheckbox :checked="picked.includes(c.path)" @update:checked="togglePicked(c.path, $event)" />
+                <span class="cand-name">{{ c.name }}</span>
                 <span class="cand-desc dim">{{ c.description ?? '（无描述）' }}</span>
               </div>
-            </n-checkbox-group>
-            <n-checkbox-group v-else v-model:value="hubPicked">
+            </div>
+            <div v-else>
               <div v-for="c in hubResults" :key="c.slug" class="cand-row">
-                <n-checkbox :value="c.slug">
-                  <span class="hub-name">{{ c.name }}</span>
-                  <n-tag v-if="c.verified" size="tiny" type="success" :bordered="false">认证</n-tag>
-                  <span class="dim small">v{{ c.version }} · {{ c.downloads }} 下载</span>
-                </n-checkbox>
+                <UiCheckbox :checked="hubPicked.includes(c.slug)" @update:checked="toggleHubPicked(c.slug, $event)" />
+                <span class="hub-name">{{ c.name }}</span>
+                <UiBadge v-if="c.verified" type="success" size="tiny">认证</UiBadge>
+                <span class="dim small">v{{ c.version }} · {{ c.downloads }} 下载</span>
                 <span class="cand-desc dim">{{ c.description ?? '' }}</span>
               </div>
-            </n-checkbox-group>
+            </div>
           </div>
         </div>
 
@@ -731,43 +748,44 @@ onMounted(load);
             <span>接入</span><span>工具</span><span>方式</span><span class="dim">说明</span>
           </div>
           <div v-for="t in TARGET_DEFS" :key="t.tool" class="target-row">
-            <n-checkbox v-model:checked="targetState[t.tool].on" />
+            <UiCheckbox v-model:checked="targetState[t.tool].on" />
             <span>{{ t.label }}</span>
-            <n-select
-              v-model:value="targetState[t.tool].mode" size="tiny"
+            <UiSelect
+              v-model:value="targetState[t.tool].mode"
               :disabled="!targetState[t.tool].on || installing" class="mode-sel"
               :options="[{ label: '符号链接', value: 'link' }, { label: '目录复制', value: 'copy' }]"
             />
             <span class="dim small">{{ t.hint }}</span>
           </div>
-          <div class="overwrite-row">
-            <n-checkbox v-model:checked="installOverwrite">覆盖同名技能</n-checkbox>
+          <div class="overwrite-row flex items-center gap-2">
+            <UiCheckbox v-model:checked="installOverwrite" />
+            <span>覆盖同名技能</span>
           </div>
         </div>
 
         <div class="import-actions">
-          <n-button type="primary" size="small" :loading="installing" @click="installSkills">
+          <UiButton :loading="installing" @click="installSkills">
             安装 {{ importMode === 'hub' ? hubPicked.length : picked.length }} 个技能到共享库
-          </n-button>
+          </UiButton>
         </div>
 
         <div v-if="installResult" class="install-result">
           <div v-for="r in installResult" :key="r.name" class="install-row">
             <strong>{{ r.name }}</strong>
-            <n-tag size="small" :type="r.installed ? 'success' : 'error'" :bordered="false">
+            <UiBadge :type="r.installed ? 'success' : 'error'" size="small">
               {{ r.installed ? '已装入共享库' : '失败' }}
-            </n-tag>
-            <n-tag
+            </UiBadge>
+            <UiBadge
               v-for="l in r.linked" :key="l.tool" size="small"
-              :type="l.ok ? 'info' : 'warning'" :bordered="false"
+              :type="l.ok ? 'info' : 'warning'"
             >
               {{ toolName(l.tool) }} · {{ l.mode === 'link' ? '链接' : '复制' }}{{ l.ok ? '' : '：' + (l.error ?? '失败') }}
-            </n-tag>
+            </UiBadge>
             <span v-if="r.error" class="install-err">{{ r.error }}</span>
           </div>
         </div>
       </template>
-    </n-modal>
+    </UiDialog>
   </div>
 </template>
 
@@ -787,7 +805,6 @@ onMounted(load);
 .tab-n { color: var(--dim); font-size: 12px; }
 .tab.on .tab-n { color: rgba(255, 255, 255, .8); }
 .search { flex: 0 0 auto; width: 240px; }
-.toolbar :deep(.n-input) { --n-height: 30px; }
 .flex1 { flex: 1; }
 
 /* 第二层：状态筛选 + 动作 */
@@ -802,7 +819,7 @@ onMounted(load);
 .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 16px 16px; overflow: hidden; }
 
 /* 左：技能清单 */
-.list { flex: 1 1 38%; min-width: 300px; display: flex; flex-direction: column; overflow: hidden; }
+.list { flex: 0 0 19%; min-width: 300px; display: flex; flex-direction: column; overflow: hidden; }
 .list-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .lh-title { font-size: 13.5px; font-weight: 700; }
 .lh-n { font-size: 12px; color: var(--dim); }
@@ -812,15 +829,14 @@ onMounted(load);
 .srow:hover { background: var(--bg); }
 .srow.sel { background: rgba(0, 113, 227, .08); border-color: var(--accent); }
 .srow-logo { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; background: #fff; flex-shrink: 0; }
-.srow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.srow-main { flex: 1; min-width: 0; display: flex; align-items: center; }
 .srow-name { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .srow-name-t { font-size: 13.5px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.srow-desc { font-size: 11.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .srow-tools { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
 .srow-tool-logo { width: 15px; height: 15px; border-radius: 3px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
 
 /* 右：详情 Inspector */
-.detail { flex: 1 1 62%; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }
+.detail { flex: 1 1 auto; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }
 .insp-head { flex: 0 0 auto; display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 8px; }
 .insp-logo { width: 22px; height: 22px; border-radius: 5px; object-fit: contain; background: #fff; border: 1px solid var(--border); flex-shrink: 0; margin-top: 1px; }
 .insp-id { flex: 1; min-width: 0; }
@@ -909,6 +925,7 @@ onMounted(load);
 .import-url-row { display: flex; gap: 8px; }
 .cand-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; max-height: 220px; overflow: auto; }
 .cand-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.cand-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .cand-desc { font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .target-row { display: grid; grid-template-columns: 40px 110px 150px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; }
 .mode-sel { width: 120px; }
@@ -921,7 +938,12 @@ onMounted(load);
 
 @media (max-width: 1024px) {
   .body { flex-direction: column; overflow-y: auto; }
-  .list { max-height: 46vh; }
+  .list { flex: none; width: 100%; min-width: 0; max-height: 46vh; }
   .search { width: 160px; }
 }
+.entry-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.entry-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+.entry-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.entry-table tr:last-child td { border-bottom: none; }
+.entry-path { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

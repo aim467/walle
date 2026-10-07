@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>walle · UI 风格对比</title>
+<style>
+  :root {
+    --font: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); min-height: 100vh; }
+
+  /* ===== 顶部切换器 ===== */
+  .switcher {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; gap: 8px; align-items: center;
+    padding: 10px 16px; background: #111827; color: #e5e7eb;
+  }
+  .switcher strong { font-size: 13px; margin-right: 12px; }
+  .switcher button {
+    border: 1px solid #374151; background: transparent; color: #9ca3af;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .switcher button.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+  .variant { display: none; }
+  .variant.on { display: block; }
+
+  /* 通用布局骨架：三页共用 */
+  .page { padding: 24px 28px; max-width: 1200px; margin: 0 auto; }
+  .page h1 { font-size: 20px; margin-bottom: 4px; }
+  .page .sub { font-size: 12px; opacity: .65; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .card { padding: 16px; }
+  .card .tool { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .card .logo { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #fff; }
+  .card .name { font-weight: 600; font-size: 14px; }
+  .card .id { font-size: 11px; opacity: .55; font-family: var(--mono); }
+  .card .num { font-size: 28px; font-weight: 700; margin: 6px 0 2px; }
+  .card .cap { font-size: 11px; opacity: .6; }
+  .card .kinds { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+  .card .path { font-size: 10px; opacity: .45; font-family: var(--mono); margin-top: 8px; word-break: break-all; }
+
+  .usage-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+  .usage-title small { font-weight: 400; font-size: 12px; opacity: .6; margin-left: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 10px 14px; text-align: left; }
+  .total { font-weight: 700; }
+
+  /* ========= A. 现状 Naive UI 风 ========= */
+  .a { background: #f7f8fa; color: #333639; }
+  .a .card { background: #fff; border-radius: 10px; border: 1px solid #eff0f3; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .a .tag { background: #f2f3f5; color: #555; border-radius: 4px; padding: 1px 7px; font-size: 11px; }
+  .a .usage { background: #fff; border-radius: 10px; border: 1px solid #eff0f3; overflow: hidden; }
+  .a th { background: #fafafc; color: #666; font-weight: 500; border-bottom: 1px solid #eff0f3; }
+  .a td { border-bottom: 1px solid #f2f3f5; }
+
+  /* ========= B. shadcn 风 ========= */
+  .b { background: #fafafa; color: #09090b; }
+  .b .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; box-shadow: 0 1px 1px rgba(0,0,0,.02); transition: box-shadow .15s; }
+  .b .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+  .b .tag { border: 1px solid #e4e4e7; color: #3f3f46; border-radius: 999px; padding: 1px 9px; font-size: 11px; background: #fff; }
+  .b .num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .b .scan-btn { background: #18181b; color: #fafafa; border-radius: 8px; padding: 7px 16px; font-size: 13px; border: none; float: right; }
+  .b .usage { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; overflow: hidden; }
+  .b th { color: #71717a; font-weight: 500; font-size: 12px; border-bottom: 1px solid #e4e4e7; }
+  .b td { border-bottom: 1px solid #f4f4f5; font-variant-numeric: tabular-nums; }
+  .b .muted { color: #71717a; }
+
+  /* ========= C. PrimeVue Aura 风 ========= */
+  .c { background: #f8f9fb; color: #334155; }
+  .c .card { background: #fff; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04); }
+  .c .card { border-top: 3px solid #6366f1; }
+  .c .tag { background: #eef2ff; color: #4f46e5; border-radius: 6px; padding: 1px 8px; font-size: 11px; font-weight: 500; }
+  .c .scan-btn { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border-radius: 10px; padding: 8px 18px; font-size: 13px; border: none; float: right; box-shadow: 0 2px 8px rgba(99,102,241,.35); }
+  .c .page h1 { background: linear-gradient(90deg, #4f46e5, #9333ea); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .c .usage { background: #fff; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(15,23,42,.06); overflow: hidden; }
+  .c th { background: #f8fafc; color: #64748b; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e2e8f0; }
+  .c td { border-bottom: 1px solid #f1f5f9; }
+  .c .total { color: #4f46e5; }
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  <strong>walle 总览页 · 风格对比</strong>
+  <button data-v="a" class="on">A · 现状 Naive UI</button>
+  <button data-v="b">B · shadcn 风</button>
+  <button data-v="c">C · PrimeVue Aura 风</button>
+</div>
+
+<!-- 三个变体共用同一份数据结构，JS 克隆填充 -->
+<template id="tpl">
+  <div class="page">
+    <h1>总览</h1>
+    <div class="sub">全部 AI 工具资产的一站式视图 · 数据落盘 ~/.walle</div>
+    <div class="grid" data-grid></div>
+    <div class="usage-title">Token 用量<small>累计 368.86 M tokens · 输入 367.31 M / 输出 1.30 M</small></div>
+    <div class="usage">
+      <table>
+        <thead><tr><th>工具</th><th>会话</th><th>输入</th><th>输出</th><th>缓存读</th><th>合计</th></tr></thead>
+        <tbody>
+          <tr><td>Codex CLI</td><td>36 / 45</td><td>50.52 M</td><td>450.5 k</td><td>45.26 M</td><td class="total">50.97 M</td></tr>
+          <tr><td>opencode</td><td>3</td><td>307.2 k</td><td>1,599</td><td>233.3 k</td><td class="total">553.9 k</td></tr>
+          <tr><td>ZCode</td><td>17 / 18</td><td>316.49 M</td><td>848.8 k</td><td>305.84 M</td><td class="total">317.34 M</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-card">
+  <div class="card">
+    <div class="tool"><div class="logo"></div><div><div class="name"></div><div class="id"></div></div></div>
+    <div class="cap">个资产</div>
+    <div class="num"></div>
+    <div class="kinds"></div>
+    <div class="path"></div>
+  </div>
+</template>
+
+<div id="mount-a" class="variant a on"></div>
+<div id="mount-b" class="variant b"></div>
+<div id="mount-c" class="variant c"></div>
+
+<script>
+const TOOLS = [
+  { name: "Skills 共享库", id: "agents", color: "#7c3aed", logo: "✦", num: 53, kinds: ["配置 1", "Skill 52"], path: "C:\\Users\\Administrator\\.agents" },
+  { name: "Codex CLI", id: "codex", color: "#111827", logo: "◎", num: 69, kinds: ["配置 4", "会话 45", "Skill 6", "凭证 1"], path: "C:\\Users\\Administrator\\.codex" },
+  { name: "Cursor", id: "cursor", color: "#0ea5e9", logo: "▮", num: 37, kinds: ["配置 3", "Skill 27", "会话 4"], path: "C:\\Users\\Administrator\\.cursor" },
+  { name: "知识库", id: "walle", color: "#2563eb", logo: "🤖", num: 3, kinds: ["knowledge 3"], path: "C:\\Users\\Administrator\\.walle\\knowledge" },
+  { name: "WorkBuddy 国际版", id: "workbuddy", color: "#16a34a", logo: "◆", num: 143, kinds: ["配置 11", "记忆 12", "会话 21", "插件 39"], path: "C:\\Users\\Administrator\\.workbuddy-ai" },
+  { name: "WorkBuddy 国内版", id: "workbuddy-cn", color: "#059669", logo: "◈", num: 286, kinds: ["配置 12", "记忆 35", "会话 42", "插件 44"], path: "C:\\Users\\Administrator\\.workbuddy" },
+  { name: "ZCode", id: "zcode", color: "#1e3a8a", logo: "Z", num: 38, kinds: ["子代理 16", "配置 6", "记忆 4", "Skill 5"], path: "C:\\Users\\Administrator\\.zcode" },
+  { name: "opencode", id: "opencode", color: "#dc2626", logo: "▣", num: 3, kinds: ["配置 1", "凭证 1", "会话 1"], path: "C:\\Users\\Administrator\\.config\\opencode" },
+];
+
+for (const mid of ["mount-a", "mount-b", "mount-c"]) {
+  const root = document.getElementById(mid);
+  root.appendChild(document.getElementById("tpl").content.cloneNode(true));
+  const grid = root.querySelector("[data-grid]");
+  for (const t of TOOLS) {
+    const card = document.getElementById("tpl-card").content.cloneNode(true);
+    card.querySelector(".logo").textContent = t.logo;
+    card.querySelector(".logo").style.background = t.color;
+    card.querySelector(".name").textContent = t.name;
+    card.querySelector(".id").textContent = t.id;
+    card.querySelector(".num").textContent = t.num;
+    card.querySelector(".path").textContent = t.path;
+    const kinds = card.querySelector(".kinds");
+    for (const k of t.kinds) {
+      const s = document.createElement("span");
+      s.className = "tag";
+      s.textContent = k;
+      kinds.appendChild(s);
+    }
+    grid.appendChild(card);
+  }
+}
+
+document.querySelector(".switcher").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-v]");
+  if (!btn) return;
+  document.querySelectorAll(".switcher button").forEach((b) => b.classList.toggle("on", b === btn));
+  document.querySelectorAll(".variant").forEach((v) => v.classList.toggle("on", v.id === "mount-" + btn.dataset.v));
+});
+</script>
+</body>
+</html>

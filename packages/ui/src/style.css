@@ -1,17 +1,55 @@
-/* walle · Apple 风格设计基座 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* walle · 设计基座 v2：shadcn 令牌体系（HSL 通道）+ 明暗双主题 + legacy 兼容层
+   - 新组件（shadcn 化）直接用 Tailwind 类（bg-background/text-foreground/...）
+   - 既有手写 Apple 风页面的 --bg/--text/--border 等 legacy 变量派生自令牌，
+     .dark 一翻转全站生效；页面逐个迁移，硬编码 rgba 随迁移清理 */
 :root{
-  --bg:#f5f5f7;
-  --card:rgba(255,255,255,.78);
-  --card-solid:#ffffff;
-  --border:rgba(0,0,0,.08);
-  --text:#1d1d1f;
-  --dim:#6e6e73;
-  --accent:#0071e3;
+  /* —— shadcn 令牌（HSL 通道，Tailwind 用 hsl(var(--x)/<alpha>) 引用） —— */
+  --background: 240 11% 96%;      /* #f5f5f7 */
+  --foreground: 240 5% 12%;       /* #1d1d1f */
+  --card: 0 0% 100%;              /* #ffffff */
+  --muted: 240 6% 94%;            /* 次级表面（hover/输入底） */
+  --muted-foreground: 240 4% 44%; /* #6e6e73 */
+  --primary: 211 100% 45%;        /* Apple 蓝 #0071e3 */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 6% 94%;
+  --destructive: 0 72% 46%;       /* #d92d20 系 */
+  --ring: 211 100% 45%;
+  /* —— legacy 兼容层（既有页面引用） —— */
+  --bg: hsl(var(--background));
+  --card-solid: hsl(var(--card));
+  --text: hsl(var(--foreground));
+  --dim: hsl(var(--muted-foreground));
+  --accent: hsl(var(--primary));
   --warn:#b25000;
   --ok:#1d8a4e;
-  --code-bg:#f6f6f8;
+  --code-bg: hsl(var(--muted));
+  --border: hsl(var(--foreground) / .08);
+  --glass: hsl(var(--card) / .72);
+  --hover: hsl(var(--foreground) / .05);
   --shadow:0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
   --radius:14px;
+}
+.dark{
+  --background: 240 5% 11%;       /* #19191c */
+  --foreground: 240 6% 91%;       /* #e6e6ea */
+  --card: 240 5% 14%;             /* #212125 */
+  --muted: 240 5% 19%;
+  --muted-foreground: 240 5% 62%;
+  --primary: 211 100% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 19%;
+  --destructive: 0 68% 58%;
+  --ring: 211 100% 52%;
+  --warn:#f5a623;
+  --ok:#4ade80;
+  --border: hsl(var(--foreground) / .12);
+  --glass: hsl(240 5% 11% / .72);
+  --hover: hsl(var(--foreground) / .07);
+  --shadow:0 1px 3px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--text)}
@@ -27,7 +65,7 @@ a{color:var(--accent);text-decoration:none}
 .mono{font-family:"SF Mono",ui-monospace,Consolas,monospace}
 /* 毛玻璃顶栏 */
 .glassbar{
-  background:rgba(255,255,255,.72);
+  background:var(--glass);
   backdrop-filter:saturate(180%) blur(20px);
   -webkit-backdrop-filter:saturate(180%) blur(20px);
   border-bottom:1px solid var(--border);
@@ -39,8 +77,8 @@ a{color:var(--accent);text-decoration:none}
   border-radius:var(--radius);
   box-shadow:var(--shadow);
 }
-::selection{background:rgba(0,113,227,.18)}
+::selection{background:hsl(var(--primary)/.2)}
 /* 滚动条 */
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:rgba(0,0,0,.16);border-radius:8px;border:3px solid transparent;background-clip:content-box}
-::-webkit-scrollbar-thumb:hover{background-color:rgba(0,0,0,.28)}
+::-webkit-scrollbar-thumb{background:hsl(var(--foreground)/.16);border-radius:8px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background-color:hsl(var(--foreground)/.28)}

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { NInput, NSelect, NButton, NEmpty } from 'naive-ui';
+import UiInput from '../components/ui/Input.vue';
+import UiSelect from '../components/ui/Select.vue';
+import UiButton from '../components/ui/Button.vue';
+import UiTextarea from '../components/ui/Textarea.vue';
+import UiEmpty from '../components/ui/Empty.vue';
 import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
@@ -192,37 +196,43 @@ onMounted(async () => {
     <!-- 第一层：AI 工具 / 数据源 -->
     <div class="toolbar glassbar">
       <div class="tabs-strip">
-        <button class="tab" :class="{ on: activeTool === null }" @click="activeTool = null">
+        <UiButton
+          size="sm" class="h-8 gap-1.5 px-3"
+          :variant="activeTool === null ? 'default' : 'ghost'"
+          @click="activeTool = null"
+        >
           <span class="tab-dot">A</span>
           <span class="tab-name">全部工具</span>
           <span class="tab-n">{{ totalShown }}</span>
-        </button>
-        <button
+        </UiButton>
+        <UiButton
           v-for="t in TOOLS" :key="t"
-          class="tab" :class="{ on: activeTool === t, off: !toolCount(t) }" @click="activeTool = t"
+          size="sm" class="h-8 gap-1.5 px-3" :class="{ 'opacity-45': !toolCount(t) }"
+          :variant="activeTool === t ? 'default' : 'ghost'"
+          @click="activeTool = t"
         >
           <img class="tab-logo" :src="toolLogos[t]" :alt="t">
           <span class="tab-name">{{ toolLabel[t] }}</span>
           <span class="tab-n">{{ toolCount(t) }}</span>
-        </button>
+        </UiButton>
       </div>
-      <n-input v-model:value="q" placeholder="搜索资产 / 路径…" size="small" round clearable class="search" />
+      <UiInput v-model:value="q" placeholder="搜索资产 / 路径…" class="search" />
     </div>
 
     <!-- 第二层：资产类型（原左侧纵向分类栏移到这里） -->
     <div class="typerow">
-      <button class="tchip" :class="{ on: kind === '' }" @click="kind = ''">
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="kind === '' ? 'secondary' : 'ghost'" :class="kind === '' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="kind = ''">
         <svg class="tchip-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path v-for="(d, i) in kindIcon('all')" :key="i" :d="d" />
         </svg>
         全部<span class="tchip-n">{{ totalInScope }}</span>
-      </button>
-      <button v-for="t in kindTabs" :key="t.key" class="tchip" :class="{ on: kind === t.key }" @click="kind = t.key">
+      </UiButton>
+      <UiButton v-for="t in kindTabs" :key="t.key" size="sm" class="h-7 gap-1.5 px-3" :variant="kind === t.key ? 'secondary' : 'ghost'" :class="kind === t.key ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="kind = t.key">
         <svg class="tchip-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path v-for="(d, i) in kindIcon(t.key)" :key="i" :d="d" />
         </svg>
         {{ t.label }}<span class="tchip-n">{{ t.n }}</span>
-      </button>
+      </UiButton>
     </div>
 
     <div class="body">
@@ -232,7 +242,7 @@ onMounted(async () => {
           <span class="lh-title">{{ listTitle }}</span>
           <span class="lh-n">{{ listFiltered.length }} 个资源</span>
           <span class="flex1" />
-          <n-select v-model:value="sortKey" :options="sortOptions" size="small" class="sortsel" />
+          <UiSelect v-model:value="sortKey" :options="sortOptions" class="sortsel" />
         </div>
         <div class="list-scroll">
           <template v-for="grp in visibleGroups" :key="grp.tool">
@@ -257,7 +267,7 @@ onMounted(async () => {
               <span class="arow-size">{{ humanSize(a.size) }}</span>
             </div>
           </template>
-          <n-empty v-if="!listFiltered.length" description="没有匹配的资产" style="padding:60px 0" />
+          <UiEmpty v-if="!listFiltered.length" description="没有匹配的资产" style="padding:60px 0" />
         </div>
       </div>
 
@@ -277,20 +287,20 @@ onMounted(async () => {
           </div>
           <div class="insp-act">
             <template v-if="editing">
-              <n-button size="tiny" round type="primary" @click="saveWrite">保存</n-button>
-              <n-button size="tiny" round @click="editing = false">取消</n-button>
+              <UiButton @click="saveWrite">保存</UiButton>
+              <UiButton variant="ghost" @click="editing = false">取消</UiButton>
             </template>
             <template v-else-if="source">
-              <n-button size="tiny" round :disabled="!writeEnabled" @click="startEdit">编辑</n-button>
+              <UiButton variant="ghost" :disabled="!writeEnabled" @click="startEdit">编辑</UiButton>
               <span v-if="!writeEnabled" class="dim small" title="在 ~/.walle/config.json 中开启 allowWrite">写回未开启</span>
             </template>
           </div>
         </div>
 
         <div class="insp-tabs">
-          <button class="itab" :class="{ on: tab === 'overview' }" @click="tab = 'overview'">概览</button>
-          <button class="itab" :class="{ on: tab === 'source' }" @click="tab = 'source'">原文</button>
-          <button class="itab" :class="{ on: tab === 'history' }" @click="tab = 'history'">历史</button>
+          <UiButton size="sm" class="h-7 px-3" :variant="tab === 'overview' ? 'secondary' : 'ghost'" :class="tab === 'overview' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tab = 'overview'">概览</UiButton>
+          <UiButton size="sm" class="h-7 px-3" :variant="tab === 'source' ? 'secondary' : 'ghost'" :class="tab === 'source' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tab = 'source'">原文</UiButton>
+          <UiButton size="sm" class="h-7 px-3" :variant="tab === 'history' ? 'secondary' : 'ghost'" :class="tab === 'history' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tab = 'history'">历史</UiButton>
         </div>
 
         <div v-if="writeMsg" class="msgline small" :class="{ warn: writeMsg.startsWith('拒绝') }">{{ writeMsg }}</div>
@@ -319,10 +329,10 @@ onMounted(async () => {
             <div v-if="source.sensitive" class="src-warn small">
               脱敏展示，直接保存会把脱敏文本写回！
             </div>
-            <textarea v-if="editing" v-model="editText" class="code edit" spellcheck="false"></textarea>
+            <UiTextarea v-if="editing" v-model:value="editText" variant="bare" spellcheck="false" class="h-full min-h-0 flex-1 bg-muted p-4 font-mono text-[12px] leading-[1.55] text-foreground overflow-auto whitespace-pre" />
             <pre v-else class="code">{{ source.content }}</pre>
           </div>
-          <n-empty v-else size="small" description="该资产为二进制库或无内容副本，仅记录元数据" style="padding:60px 0" />
+          <UiEmpty v-else size="small" description="该资产为二进制库或无内容副本，仅记录元数据" style="padding:60px 0" />
         </div>
 
         <!-- 历史 -->
@@ -347,7 +357,7 @@ onMounted(async () => {
       </div>
 
       <div v-else class="inspector card empty-detail">
-        <n-empty description="选择资产查看内容 / 编辑 / 快照历史" />
+        <UiEmpty description="选择资产查看内容 / 编辑 / 快照历史" />
       </div>
     </div>
   </div>

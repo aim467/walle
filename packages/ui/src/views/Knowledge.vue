@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { NInput, NEmpty, NButton, NTag, NPopconfirm, useMessage } from 'naive-ui';
+import UiButton from '../components/ui/Button.vue';
+import UiInput from '../components/ui/Input.vue';
+import UiBadge from '../components/ui/Badge.vue';
+import UiEmpty from '../components/ui/Empty.vue';
+import UiDialog from '../components/ui/Dialog.vue';
+import UiPopconfirm from '../components/ui/Popconfirm.vue';
+import UiTextarea from '../components/ui/Textarea.vue';
+import { toast } from '../components/ui/toast';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import openaiLogo from '../assets/logos/openai.png';
@@ -155,14 +162,14 @@ async function saveEdit() {
       await open(selected.value);
       await loadAll();
     } else {
-      alert('保存失败: ' + (r.reason || r.error));
+      toast.error('保存失败: ' + (r.reason || r.error));
     }
   } finally {
     saving.value = false;
   }
 }
 
-const message = useMessage();
+
 const deleting = ref(false);
 async function deleteCard() {
   if (!selected.value || deleting.value) return;
@@ -174,12 +181,12 @@ async function deleteCard() {
       body: JSON.stringify({ assetId: selected.value.id }),
     })).json();
     if (r.ok) {
-      message.success('已删除（内容副本仍在仓中，扫描可追溯）');
+      toast.success('已删除（内容副本仍在仓中，扫描可追溯）');
       selected.value = null;
       mdText.value = null;
       await loadAll();
     } else {
-      message.error('删除失败: ' + (r.error || ''));
+      toast.error('删除失败: ' + (r.error || ''));
     }
   } finally {
     deleting.value = false;
@@ -196,7 +203,7 @@ async function createCard() {
       newTitle.value = ''; newTags.value = ''; newText.value = '';
       await loadAll();
     } else {
-      alert('创建失败: ' + (r.error || ''));
+      toast.error('创建失败: ' + (r.error || ''));
     }
   } finally {
     saving.value = false;
@@ -212,19 +219,19 @@ onMounted(loadAll);
       <span class="tb-title">知识库</span>
       <span class="dim small">{{ filtered.length }} 条</span>
       <span class="flex1" />
-      <n-button size="tiny" round type="primary" @click="creating = true">＋ 新建卡片</n-button>
-      <n-input v-model:value="q" placeholder="搜索知识卡片…" size="small" round clearable class="search" />
+      <UiButton @click="creating = true">＋ 新建卡片</UiButton>
+      <UiInput v-model:value="q" placeholder="搜索知识卡片…" class="search" />
     </div>
 
     <div class="typerow">
-      <button class="tchip" :class="{ on: typeFilter === 'all' }" @click="typeFilter = 'all'">全部<span class="tchip-n">{{ items.length }}</span></button>
-      <button class="tchip" :class="{ on: typeFilter === 'card' }" @click="typeFilter = 'card'">知识卡片<span class="tchip-n">{{ typeCounts.card }}</span></button>
-      <button class="tchip" :class="{ on: typeFilter === 'summary' }" @click="typeFilter = 'summary'">总结文档<span class="tchip-n">{{ typeCounts.summary }}</span></button>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="typeFilter === 'all' ? 'secondary' : 'ghost'" :class="typeFilter === 'all' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="typeFilter = 'all'">全部<span class="tchip-n">{{ items.length }}</span></UiButton>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="typeFilter === 'card' ? 'secondary' : 'ghost'" :class="typeFilter === 'card' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="typeFilter = 'card'">知识卡片<span class="tchip-n">{{ typeCounts.card }}</span></UiButton>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="typeFilter === 'summary' ? 'secondary' : 'ghost'" :class="typeFilter === 'summary' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="typeFilter = 'summary'">总结文档<span class="tchip-n">{{ typeCounts.summary }}</span></UiButton>
       <span class="tsep" />
-      <button class="tchip" :class="{ on: tagFilter === null }" @click="tagFilter = null">全部标签</button>
-      <button v-for="t in allTags" :key="t" class="tchip" :class="{ on: tagFilter === t }" @click="tagFilter = t">
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="tagFilter === null ? 'secondary' : 'ghost'" :class="tagFilter === null ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tagFilter = null">全部标签</UiButton>
+      <UiButton v-for="t in allTags" :key="t" size="sm" class="h-7 gap-1.5 px-3" :variant="tagFilter === t ? 'secondary' : 'ghost'" :class="tagFilter === t ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tagFilter = t">
         #{{ t }}<span class="tchip-n">{{ items.filter((a) => tagsOf(a).includes(t)).length }}</span>
-      </button>
+      </UiButton>
     </div>
 
     <div class="body">
@@ -243,7 +250,7 @@ onMounted(loadAll);
               <span class="dim small">{{ fmtTime(a.mtime) }} · {{ humanSize(a.size) }}<template v-if="typeOf(a) === 'summary' && frontmatterCache.get(a.id)?.project"> · {{ frontmatterCache.get(a.id)?.project }}</template></span>
             </span>
           </div>
-          <n-empty v-if="!filtered.length" description="知识库为空——到会话页点「提炼」创建第一张卡片" style="padding:60px 0" />
+          <UiEmpty v-if="!filtered.length" description="知识库为空——到会话页点「提炼」创建第一张卡片" style="padding:60px 0" />
         </div>
       </div>
 
@@ -261,16 +268,16 @@ onMounted(loadAll);
           </div>
           <div class="insp-act">
             <template v-if="editing">
-              <n-button size="tiny" round type="primary" :loading="saving" @click="saveEdit">保存</n-button>
-              <n-button size="tiny" round @click="editing = false">取消</n-button>
+              <UiButton variant="default" :loading="saving" @click="saveEdit">保存</UiButton>
+              <UiButton variant="ghost" @click="editing = false">取消</UiButton>
             </template>
-            <n-button v-else size="tiny" round @click="startEdit">编辑</n-button>
-            <n-popconfirm v-if="!editing" positive-text="删除" negative-text="取消" @positive-click="deleteCard">
+            <UiButton v-else variant="ghost" @click="startEdit">编辑</UiButton>
+            <UiPopconfirm v-if="!editing" @confirm="deleteCard">
               <template #trigger>
-                <n-button size="tiny" round quaternary type="error" :loading="deleting">删除</n-button>
+                <UiButton variant="ghost" class="!text-destructive" :loading="deleting">删除</UiButton>
               </template>
               删除该知识卡片？内容副本仍保留在仓中可追溯。
-            </n-popconfirm>
+            </UiPopconfirm>
           </div>
         </div>
 
@@ -281,7 +288,7 @@ onMounted(loadAll);
         </div>
 
         <div v-if="editing" class="panel edit-wrap">
-          <textarea v-model="editText" class="code edit" spellcheck="false"></textarea>
+          <UiTextarea v-model:value="editText" variant="bare" spellcheck="false" class="h-full min-h-0 flex-1 bg-muted p-4 font-mono text-[12px] leading-[1.55] text-foreground overflow-auto whitespace-pre" />
         </div>
         <div v-else class="panel">
           <article class="md-content" v-html="mdHtml(bodyText)"></article>
@@ -289,23 +296,20 @@ onMounted(loadAll);
       </div>
 
       <div v-else class="inspector card empty-detail">
-        <n-empty description="选择知识卡片阅读 / 编辑" />
+        <UiEmpty description="选择知识卡片阅读 / 编辑" />
       </div>
     </div>
 
     <!-- 新建卡片 -->
-    <div v-if="creating" class="modal-mask" @click.self="creating = false">
-      <div class="modal card">
-        <div class="insp-title">新建知识卡片</div>
-        <n-input v-model:value="newTitle" placeholder="标题" size="small" round style="margin-top:12px" />
-        <n-input v-model:value="newTags" placeholder="标签（逗号分隔，如：坑, vue, api）" size="small" round style="margin-top:8px" />
-        <n-input v-model:value="newText" type="textarea" placeholder="正文（Markdown）" :autosize="{ minRows: 8, maxRows: 18 }" style="margin-top:8px" />
-        <div class="modal-act">
-          <n-button size="tiny" round @click="creating = false">取消</n-button>
-          <n-button size="tiny" round type="primary" :loading="saving" :disabled="!newTitle.trim() || !newText.trim()" @click="createCard">保存</n-button>
-        </div>
-      </div>
-    </div>
+    <UiDialog :open="creating" title="新建知识卡片" @update:open="creating = $event">
+      <UiInput v-model:value="newTitle" placeholder="标题" class="mb-2" />
+      <UiInput v-model:value="newTags" placeholder="标签（逗号分隔，如：坑, vue, api）" class="mb-2" />
+      <UiTextarea v-model:value="newText" :rows="10" placeholder="正文（Markdown）" class="font-mono text-xs" />
+      <template #footer>
+        <UiButton variant="ghost" @click="creating = false">取消</UiButton>
+        <UiButton :loading="saving" :disabled="!newTitle.trim() || !newText.trim()" @click="createCard">保存</UiButton>
+      </template>
+    </UiDialog>
   </div>
 </template>
 
@@ -344,21 +348,32 @@ onMounted(loadAll);
 .insp-act { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .src-line { flex: 0 0 auto; padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--text); }
 .panel { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.md-content { padding: 22px 30px; line-height: 1.7; max-width: 1100px; margin: auto; font-size: 13.5px; }
-.md-content :deep(h1) { font-size: 24px; margin: 0 0 14px; }
-.md-content :deep(h2) { font-size: 18px; margin: 24px 0 10px; }
-.md-content :deep(h3) { font-size: 14px; margin: 18px 0 8px; }
-.md-content :deep(p), .md-content :deep(li) { color: #4e535a; }
+.md-content { padding: 22px 30px; line-height: 1.7; max-width: 1100px; margin: auto; font-size: 13.5px; color: var(--text); }
+.md-content :deep(h1) { font-size: 24px; margin: 0 0 14px; font-weight: 700; }
+.md-content :deep(h2) { font-size: 18px; margin: 24px 0 10px; font-weight: 700; }
+.md-content :deep(h3) { font-size: 14px; margin: 18px 0 8px; font-weight: 600; }
+.md-content :deep(h4) { font-size: 13.5px; margin: 14px 0 6px; font-weight: 600; }
+.md-content :deep(p), .md-content :deep(li) { color: var(--text); }
 .md-content :deep(li) { margin: 6px 0; }
-.md-content :deep(pre) { font-family: "SF Mono", ui-monospace, Consolas, monospace; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow: auto; font-size: 12px; }
-.md-content :deep(code) { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 12px; }
+.md-content :deep(ul), .md-content :deep(ol) { padding-left: 22px; }
+.md-content :deep(a) { color: var(--accent); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.md-content :deep(strong) { font-weight: 600; }
+.md-content :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+.md-content :deep(blockquote) {
+  margin: 12px 0; padding: 4px 14px; color: var(--dim);
+  background: var(--muted); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0;
+}
+.md-content :deep(table) { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 12.5px; }
+.md-content :deep(th), .md-content :deep(td) { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md-content :deep(th) { background: var(--muted); font-weight: 600; }
+.md-content :deep(img) { max-width: 100%; border-radius: 8px; }
+.md-content :deep(pre) { font-family: "SF Mono", ui-monospace, Consolas, monospace; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow: auto; font-size: 12px; color: var(--text); }
+.md-content :deep(code) { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 12px; background: var(--muted); color: var(--text); padding: 1px 5px; border-radius: 4px; }
+.md-content :deep(pre code) { background: transparent; color: inherit; padding: 0; border-radius: 0; }
 .edit-wrap { display: flex; flex-direction: column; }
 .code { flex: 1; min-height: 0; width: 100%; margin: 0; background: var(--code-bg); border: none; padding: 12px 16px; font: 12px/1.55 "SF Mono", ui-monospace, Consolas, monospace; white-space: pre; overflow: auto; color: var(--text); }
 .code.edit { resize: none; outline: none; }
 
-.modal-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, .3); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.modal { width: 640px; max-width: 92vw; max-height: 84vh; overflow: auto; padding: 16px 20px; }
-.modal-act { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 
 @media (max-width: 1024px) {
   .body { flex-direction: column; overflow-y: auto; }

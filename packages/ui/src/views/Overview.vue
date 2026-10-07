@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { NCard, NTag, NStatistic, NButton, useMessage } from 'naive-ui';
+import { ref, computed, onMounted } from 'vue';
+import UiButton from '../components/ui/Button.vue';
+import UiBadge from '../components/ui/Badge.vue';
+import { toast } from '../components/ui/toast';
 import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
@@ -35,7 +37,7 @@ const usage = ref<ToolUsage[]>([]);
 const usageDaily = ref<UsageDay[]>([]);
 const usageProjects = ref<UsageProject[]>([]);
 const scanning = ref(false);
-const message = useMessage();
+
 const kindLabel: Record<string, string> = {
   config: '配置', session: '会话', memory: '记忆', skill: 'Skill', mcp: 'MCP', rule: '规则',
   prompt: '输入历史', agent: '子代理', plugin: '插件', secret: '凭证', other: '其他',
@@ -65,6 +67,13 @@ const usageTotal = () =>
     total: (acc.total ?? 0) + (u.total ?? 0), cost: (acc.cost ?? 0) + (u.cost ?? 0),
   }), { input: 0, output: 0, total: 0, cost: 0 } as { input: number; output: number; total: number; cost: number });
 
+/** 顶部聚合指标：数据源数 / 资产总数 / 最近扫描时间 */
+const aggregate = computed(() => {
+  const assets = sources.value.reduce((a, s) => a + s.total, 0);
+  const lastScan = sources.value.map((s) => s.lastScannedAt).filter(Boolean).sort().pop() ?? null;
+  return { tools: sources.value.length, assets, lastScan: lastScan as string | null };
+});
+
 /** 近 14 天趋势：以今天为终点补齐空日期（无用量日高度为 0） */
 const dailyBars = () => {
   const byDay = new Map(usageDaily.value.map((d) => [d.day, d]));
@@ -76,27 +85,35 @@ const dailyBars = () => {
     max = Math.max(max, total);
     out.push({ day: dt, total, height: 0 });
   }
-  for (const b of out) b.height = max > 0 ? Math.max(2, Math.round((b.total / max) * 100)) : 2;
+  for (const b of out) b.height = max > 0 ? Math.max(3, Math.round((b.total / max) * 100)) : 3;
   return out;
 };
 const projName = (p: string) => p.replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
 
+/** Top 项目：按 token 占比生成内联条形（单一品牌色编码量级） */
+const projRows = computed(() => {
+  const max = Math.max(0, ...usageProjects.value.map((p) => p.total ?? 0));
+  return usageProjects.value.map((p) => ({
+    ...p,
+    pct: max > 0 ? Math.round(((p.total ?? 0) / max) * 100) : 0,
+  }));
+});
+
 async function rescan(source?: string) {
   if (scanning.value) return;
   scanning.value = true;
-  const done = message.loading(source ? `正在重新扫描 ${toolLabel[source] ?? source}…` : '正在重新扫描全部数据源…', { duration: 0 });
+
   try {
     const d = await (await fetch('/api/scan' + (source ? `?source=${source}` : ''), { method: 'POST' })).json();
     if (!d.ok) {
-      message.error(d.error ?? '扫描失败');
+      toast.error(d.error ?? '扫描失败');
       return;
     }
     const parts = d.results.filter((r: ScanResult) => r.scanned)
       .map((r: ScanResult) => `${r.displayName}：资产 ${r.total}${r.new ? ` · 新增 ${r.new}` : ''}${r.updated ? ` · 更新 ${r.updated}` : ''}`);
-    message.success(parts.length ? parts.join('；') : '未发现任何 AI 工具数据源目录');
+    toast.success(parts.length ? parts.join('；') : '未发现任何 AI 工具数据源目录');
     await load();
   } finally {
-    done();
     scanning.value = false;
   }
 }
@@ -105,124 +122,177 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="page-head">
-    <div>
-      <h2>总览</h2>
-      <div class="dim small">全部 AI 工具资产的一站式视图 · 数据落盘 ~/.walle</div>
-    </div>
-    <div class="head-actions">
-      <n-button size="small" secondary :loading="scanning" @click="rescan()">重新扫描</n-button>
-      <n-tag :bordered="false" size="small" round>
-        写回开关 <span :class="allowWrite ? 'warn' : 'ok'">{{ allowWrite ? '已开启' : '关闭（安全）' }}</span>
-      </n-tag>
-    </div>
-  </div>
-
-  <div class="cards">
-    <n-card v-for="s in sources" :key="s.tool" size="small" class="src-card">
-      <div class="card-head">
-        <img class="card-logo" :src="toolLogos[s.tool]" :alt="s.tool">
-        <strong>{{ s.displayName }}</strong>
-        <n-tag size="tiny" :bordered="false" round>{{ s.tool }}</n-tag>
-      </div>
-      <n-statistic :value="s.total" tabular-num-size="26px" class="stat">
-        <template #label><span class="dim small">个资产</span></template>
-      </n-statistic>
-      <div class="kinds">
-        <n-tag v-for="(n, k) in s.byKind" :key="k" size="tiny" :bordered="false" round>
-          {{ kindLabel[k] ?? k }} {{ n }}
-        </n-tag>
-      </div>
-      <div class="dim small foot">上次扫描 {{ fmtTime(s.lastScannedAt) }} · <a class="rescan-link" @click="rescan(s.tool)">仅扫此源</a></div>
-      <div class="dim small foot mono path" :title="s.rootPath">{{ s.rootPath }}</div>
-    </n-card>
-  </div>
-
-  <!-- Token 用量（P5.1：仅统计能提供用量的工具，取不到的如实不显示） -->
-  <div v-if="usageRows().length" class="usage">
-    <div class="usage-head">
-      <h3>Token 用量</h3>
-      <span class="dim small">
-        累计 {{ fmtTok(usageTotal().total) }} tokens · 输入 {{ fmtTok(usageTotal().input) }} / 输出 {{ fmtTok(usageTotal().output) }}
-        <template v-if="usageTotal().cost > 0"> · 成本 {{ usageTotal().cost.toFixed(2) }}</template>
-      </span>
-    </div>
-    <n-card size="small" class="usage-card">
-      <table class="usage-table">
-        <thead>
-          <tr><th>工具</th><th class="num">会话</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存读</th><th class="num">合计</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in usageRows()" :key="u.tool">
-            <td><img class="usage-logo" :src="toolLogos[u.tool]" alt=""><span>{{ toolLabel[u.tool] ?? u.tool }}</span></td>
-            <td class="num">{{ u.withUsage }}<span v-if="u.sessions > u.withUsage" class="dim"> / {{ u.sessions }}</span></td>
-            <td class="num">{{ fmtTok(u.input) }}</td>
-            <td class="num">{{ fmtTok(u.output) }}</td>
-            <td class="num">{{ fmtTok(u.cacheRead) }}</td>
-            <td class="num strong">{{ fmtTok(u.total) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </n-card>
-
-    <div class="usage-two">
+  <div>
+    <div class="page-head">
       <div>
-        <div class="dim small ub-title">近 14 天（按会话开始日，UTC）</div>
-        <n-card size="small" class="usage-card">
-          <div class="bars">
-            <div v-for="b in dailyBars()" :key="b.day" class="bar-col" :title="b.day + ' · ' + fmtTok(b.total) + ' tokens'">
-              <div class="bar" :style="{ height: b.height + '%' }" :class="{ empty: b.total === 0 }"></div>
-              <span class="bar-label">{{ b.day.slice(5) }}</span>
+        <h2>总览</h2>
+        <div class="subtitle">全部 AI 工具资产的一站式视图 · 数据落盘 ~/.walle</div>
+      </div>
+      <div class="head-actions">
+        <UiButton variant="secondary" :loading="scanning" @click="rescan()">重新扫描</UiButton>
+        <UiBadge size="small">
+          写回开关 <span :class="allowWrite ? 'warn' : 'ok'">{{ allowWrite ? '已开启' : '关闭（安全）' }}</span>
+        </UiBadge>
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="sm"><span class="sm-num">{{ aggregate.tools }}</span><span class="sm-label">数据源</span></div>
+      <div class="sm"><span class="sm-num">{{ aggregate.assets.toLocaleString('en-US') }}</span><span class="sm-label">资产总数</span></div>
+      <div class="sm"><span class="sm-num">{{ fmtTok(usageTotal().total) }}</span><span class="sm-label">累计 tokens</span></div>
+      <div class="sm"><span class="sm-num sm-mono">{{ aggregate.lastScan ? fmtTime(aggregate.lastScan) : '—' }}</span><span class="sm-label">最近扫描</span></div>
+    </div>
+
+    <div class="cards">
+      <div v-for="(s, i) in sources" :key="s.tool" class="card src-card" :style="{ '--i': i }">
+        <div class="card-head">
+          <img class="card-logo" :src="toolLogos[s.tool]" :alt="s.tool">
+          <strong>{{ s.displayName }}</strong>
+          <UiBadge>{{ s.tool }}</UiBadge>
+          <span class="stat-num">{{ s.total.toLocaleString('en-US') }}</span>
+        </div>
+        <div class="kinds">
+          <UiBadge v-for="(n, k) in s.byKind" :key="k">
+            {{ kindLabel[k] ?? k }} {{ n }}
+          </UiBadge>
+        </div>
+        <div class="dim small foot">上次扫描 {{ fmtTime(s.lastScannedAt) }} · <a class="rescan-link" @click="rescan(s.tool)">仅扫此源</a></div>
+        <div class="dim small foot mono path" :title="s.rootPath">{{ s.rootPath }}</div>
+      </div>
+    </div>
+
+    <!-- Token 用量（P5.1：仅统计能提供用量的工具，取不到的如实不显示） -->
+    <div v-if="usageRows().length" class="usage">
+      <div class="usage-head">
+        <h3>Token 用量</h3>
+        <span class="dim small">
+          累计 {{ fmtTok(usageTotal().total) }} tokens · 输入 {{ fmtTok(usageTotal().input) }} / 输出 {{ fmtTok(usageTotal().output) }}
+          <template v-if="usageTotal().cost > 0"> · 成本 {{ usageTotal().cost.toFixed(2) }}</template>
+        </span>
+      </div>
+      <div class="card usage-card">
+        <table class="usage-table">
+          <thead>
+            <tr><th>工具</th><th class="num">会话</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存读</th><th class="num">合计</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in usageRows()" :key="u.tool">
+              <td><img class="usage-logo" :src="toolLogos[u.tool]" alt=""><span>{{ toolLabel[u.tool] ?? u.tool }}</span></td>
+              <td class="num">{{ u.withUsage }}<span v-if="u.sessions > u.withUsage" class="dim"> / {{ u.sessions }}</span></td>
+              <td class="num">{{ fmtTok(u.input) }}</td>
+              <td class="num">{{ fmtTok(u.output) }}</td>
+              <td class="num">{{ fmtTok(u.cacheRead) }}</td>
+              <td class="num strong">{{ fmtTok(u.total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="usage-two">
+        <div>
+          <div class="dim small ub-title">近 14 天（按会话开始日，UTC）</div>
+          <div class="card usage-card">
+            <div class="bars">
+              <div v-for="(b, i) in dailyBars()" :key="b.day" class="bar-col" :title="b.day + ' · ' + fmtTok(b.total) + ' tokens'" :style="{ '--i': i }">
+                <div class="bar" :class="{ empty: b.total === 0 }" :style="{ height: b.height + '%' }"></div>
+                <span class="bar-label">{{ b.day.slice(8) }}</span>
+              </div>
             </div>
           </div>
-        </n-card>
-      </div>
-      <div>
-        <div class="dim small ub-title">Top 项目（按 token 用量）</div>
-        <n-card size="small" class="usage-card">
-          <div v-for="p in usageProjects" :key="p.project" class="proj-row" :title="p.project">
-            <span class="proj-name mono">{{ projName(p.project) }}</span>
-            <span class="dim small">{{ p.withUsage }} 会话 · {{ fmtTok(p.total) }}</span>
+        </div>
+        <div>
+          <div class="dim small ub-title">Top 项目（按 token 用量）</div>
+          <div class="card usage-card">
+            <div v-for="p in projRows" :key="p.project" class="proj-row" :title="p.project">
+              <span class="proj-bar" :style="{ width: p.pct + '%' }"></span>
+              <span class="proj-name mono">{{ projName(p.project) }}</span>
+              <span class="dim small proj-meta">{{ p.withUsage }} 会话 · {{ fmtTok(p.total) }}</span>
+            </div>
+            <div v-if="!usageProjects.length" class="dim small proj-empty">暂无带项目路径的用量数据</div>
           </div>
-          <div v-if="!usageProjects.length" class="dim small">暂无带项目路径的用量数据</div>
-        </n-card>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
 .head-actions { display: flex; gap: 10px; align-items: center; }
-h2 { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-.card-head { display: flex; gap: 9px; align-items: center; margin-bottom: 8px; }
+h2 { margin: 0 0 3px; font-size: 23px; font-weight: 700; letter-spacing: -.2px; }
+.subtitle { color: var(--dim); font-size: 13px; }
+
+/* 聚合指标条：左对齐、分隔线、tabular 数字，提供清晰焦点的层次 */
+.summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 30px; margin: 2px 0 24px; }
+.summary .sm { position: relative; display: flex; align-items: baseline; gap: 7px; }
+.summary .sm:not(:first-child)::before { content: ''; position: absolute; left: -15px; top: 3px; bottom: 3px; width: 1px; background: var(--border); }
+.sm-num { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px; line-height: 1.1; }
+.sm-mono { font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 15px; }
+.sm-label { font-size: 12px; color: var(--dim); white-space: nowrap; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 14px; }
+.src-card {
+  padding: 15px 16px;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  animation: cardIn .55s cubic-bezier(.22, .61, .36, 1) backwards;
+}
+/* 入场用 backwards：结束后交还控制权，hover 变换不被动画 fill 覆盖 */
+.src-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .09), 0 16px 40px rgba(0, 0, 0, .06);
+  border-color: hsl(var(--primary) / .32);
+}
+@keyframes cardIn { from { opacity: 0; transform: translateY(12px); } }
+.stat-num { margin-left: auto; font-size: 22px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
+.card-head { display: flex; gap: 9px; align-items: center; margin-bottom: 12px; }
 .card-logo { width: 22px; height: 22px; border-radius: 6px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
-.stat { margin: 4px 0 8px; }
-.kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
 .foot { line-height: 1.5; }
 .rescan-link { color: var(--accent); cursor: pointer; }
 .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: 11px; }
-.usage { margin-top: 22px; }
-.usage-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; }
-.usage-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
-.usage-card { max-width: 720px; }
+
+.usage { margin-top: 26px; }
+.usage-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
+.usage-head h3 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .1px; }
+.usage-card { max-width: 720px; padding: 10px 14px; }
 .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.usage-table th { text-align: left; color: #6e6e73; font-weight: 500; padding: 4px 10px; border-bottom: 1px solid var(--border); }
-.usage-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.usage-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+.usage-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); transition: background .15s ease; }
+.usage-table tbody tr { transition: background .15s ease; }
+.usage-table tbody tr:hover { background: var(--hover); }
 .usage-table tr:last-child td { border-bottom: none; }
 .usage-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.usage-table .strong { font-weight: 600; }
+.usage-table .strong { font-weight: 700; color: hsl(var(--primary)); }
 .usage-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: contain; background: #fff; border: 1px solid var(--border); vertical-align: -3px; margin-right: 7px; }
 .usage-table td:first-child { display: flex; align-items: center; }
+
 .usage-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; max-width: 980px; }
 .ub-title { margin-bottom: 6px; }
-.bars { display: flex; align-items: flex-end; gap: 5px; height: 110px; padding-top: 4px; }
-.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
-.bar { width: 100%; max-width: 26px; background: linear-gradient(180deg, #0a84ff, #5e5ce6); border-radius: 4px 4px 0 0; }
+.bars { display: flex; align-items: flex-end; gap: 5px; height: 116px; padding-top: 4px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; cursor: default; }
+/* 单一品牌色，自底向上 scaleY 入场（GPU 友好，不动画布局属性）；移除蓝紫渐变 */
+.bar {
+  width: 100%; max-width: 26px; border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, hsl(var(--primary)), color-mix(in srgb, hsl(var(--primary)) 70%, var(--card)));
+  transform: scaleY(0); transform-origin: bottom;
+  animation: barIn .55s cubic-bezier(.22, .61, .36, 1) forwards;
+  animation-delay: calc(var(--i) * 35ms);
+  transition: filter .15s ease;
+}
 .bar.empty { background: var(--border); }
-.bar-label { font-size: 9px; color: #8e8e93; margin-top: 4px; white-space: nowrap; }
-.proj-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 2px; border-bottom: 1px solid var(--border); }
+.bar-col:hover .bar { filter: brightness(1.12); }
+@keyframes barIn { to { transform: scaleY(1); } }
+.bar-label { font-size: 9px; color: var(--dim); margin-top: 5px; white-space: nowrap; }
+
+.proj-row { position: relative; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 2px; border-bottom: 1px solid var(--border); overflow: hidden; }
 .proj-row:last-of-type { border-bottom: none; }
-.proj-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.proj-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: hsl(var(--primary) / .09); border-right: 2px solid hsl(var(--primary) / .4); transition: width .4s cubic-bezier(.22, .61, .36, 1); }
+.proj-name { position: relative; z-index: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.proj-meta { position: relative; z-index: 1; flex-shrink: 0; }
+.proj-empty { padding: 8px 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .src-card, .bar { animation: none !important; transform: none !important; }
+  .src-card:hover { transform: none; }
+}
 </style>

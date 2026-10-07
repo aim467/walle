@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { NInput, NEmpty } from 'naive-ui';
+import UiButton from '../components/ui/Button.vue';
+import UiInput from '../components/ui/Input.vue';
+import UiEmpty from '../components/ui/Empty.vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import openaiLogo from '../assets/logos/openai.png';
@@ -138,29 +140,35 @@ onMounted(async () => {
     <!-- 第一层：工具 -->
     <div class="toolbar glassbar">
       <div class="tabs-strip">
-        <button class="tab" :class="{ on: activeTool === null }" @click="activeTool = null">
+        <UiButton
+          size="sm" class="h-8 gap-1.5 px-3"
+          :variant="activeTool === null ? 'default' : 'ghost'"
+          @click="activeTool = null"
+        >
           <span class="tab-dot">M</span>
           <span class="tab-name">全部工具</span>
           <span class="tab-n">{{ memories.length }}</span>
-        </button>
-        <button
+        </UiButton>
+        <UiButton
           v-for="t in tools" :key="t"
-          class="tab" :class="{ on: activeTool === t }" @click="activeTool = t"
+          size="sm" class="h-8 gap-1.5 px-3"
+          :variant="activeTool === t ? 'default' : 'ghost'"
+          @click="activeTool = t"
         >
           <img class="tab-logo" :src="toolLogos[t]" :alt="t">
           <span class="tab-name">{{ toolLabel[t] }}</span>
           <span class="tab-n">{{ toolCount(t) }}</span>
-        </button>
+        </UiButton>
       </div>
-      <n-input v-model:value="q" placeholder="搜索记忆 / 路径…" size="small" round clearable class="search" />
+      <UiInput v-model:value="q" placeholder="搜索记忆 / 路径…" class="search" />
     </div>
 
     <!-- 第二层：作用域 -->
     <div class="typerow">
-      <button class="tchip" :class="{ on: scope === '' }" @click="scope = ''">全部<span class="tchip-n">{{ scoped.length }}</span></button>
-      <button class="tchip" :class="{ on: scope === 'global' }" @click="scope = 'global'">根记忆<span class="tchip-n">{{ nGlobal }}</span></button>
-      <button class="tchip" :class="{ on: scope === 'project' }" @click="scope = 'project'">项目记忆<span class="tchip-n">{{ nProject }}</span></button>
-      <button class="tchip" :class="{ on: scope === 'similar' }" @click="scope = 'similar'">相似<span class="tchip-n">{{ nSimilar }}</span></button>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="scope === '' ? 'secondary' : 'ghost'" :class="scope === '' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="scope = ''">全部<span class="tchip-n">{{ scoped.length }}</span></UiButton>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="scope === 'global' ? 'secondary' : 'ghost'" :class="scope === 'global' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="scope = 'global'">根记忆<span class="tchip-n">{{ nGlobal }}</span></UiButton>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="scope === 'project' ? 'secondary' : 'ghost'" :class="scope === 'project' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="scope = 'project'">项目记忆<span class="tchip-n">{{ nProject }}</span></UiButton>
+      <UiButton size="sm" class="h-7 gap-1.5 px-3" :variant="scope === 'similar' ? 'secondary' : 'ghost'" :class="scope === 'similar' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="scope = 'similar'">相似<span class="tchip-n">{{ nSimilar }}</span></UiButton>
     </div>
 
     <div class="body">
@@ -195,7 +203,7 @@ onMounted(async () => {
               <span class="arow-size">{{ humanSize(m.size) }}</span>
             </div>
           </template>
-          <n-empty v-if="!filtered.length" description="没有匹配的记忆" style="padding:60px 0" />
+          <UiEmpty v-if="!filtered.length" description="没有匹配的记忆" style="padding:60px 0" />
         </div>
       </div>
 
@@ -215,11 +223,11 @@ onMounted(async () => {
         </div>
 
         <div class="insp-tabs">
-          <button class="itab" :class="{ on: tab === 'source' }" @click="tab = 'source'">内容</button>
-          <button class="itab" :class="{ on: tab === 'overview' }" @click="tab = 'overview'">概览</button>
-          <button class="itab" :class="{ on: tab === 'similar' }" @click="tab = 'similar'">
+          <UiButton size="sm" class="h-7 px-3" :variant="tab === 'source' ? 'secondary' : 'ghost'" :class="tab === 'source' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tab = 'source'">内容</UiButton>
+          <UiButton size="sm" class="h-7 px-3" :variant="tab === 'overview' ? 'secondary' : 'ghost'" :class="tab === 'overview' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tab = 'overview'">概览</UiButton>
+          <UiButton size="sm" class="h-7 px-3 gap-1.5" :variant="tab === 'similar' ? 'secondary' : 'ghost'" :class="tab === 'similar' ? '!bg-primary/10 !text-primary !font-semibold' : ''" @click="tab = 'similar'">
             相似<span v-if="groupsOf(selected.assetId).length" class="itab-n">{{ groupsOf(selected.assetId).length }}</span>
-          </button>
+          </UiButton>
         </div>
 
         <!-- 内容（markdown 渲染；sqlite 等二进制记忆如实空态） -->
@@ -230,7 +238,7 @@ onMounted(async () => {
             <article v-if="selected.format === 'markdown'" class="md-content" v-html="mdHtml(rawText)"></article>
             <pre v-else class="code">{{ rawText }}</pre>
           </template>
-          <n-empty v-else size="small" description="加载中…" style="padding:60px 0" />
+          <UiEmpty v-else size="small" description="加载中…" style="padding:60px 0" />
         </div>
 
         <!-- 概览 -->
@@ -273,7 +281,7 @@ onMounted(async () => {
       </div>
 
       <div v-else class="inspector card empty-detail">
-        <n-empty description="选择记忆查看内容与相似条目" />
+        <UiEmpty description="选择记忆查看内容与相似条目" />
       </div>
     </div>
   </div>

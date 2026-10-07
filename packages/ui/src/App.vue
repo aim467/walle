@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { NConfigProvider, NMessageProvider, darkTheme, type GlobalThemeOverrides } from 'naive-ui';
+import { useTheme } from './composables/useTheme';
+import Toaster from './components/ui/Toaster.vue';
 import Overview from './views/Overview.vue';
 import Assets from './views/Assets.vue';
 import Sessions from './views/Sessions.vue';
@@ -23,20 +24,8 @@ const nav = [
   { path: '/settings', label: '设置', icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zm8.4 4a8.4 8.4 0 00-.1-1.3l2-1.6-2-3.4-2.4 1a8.5 8.5 0 00-2.2-1.3L15.3 3h-4l-.4 2.4a8.5 8.5 0 00-2.2 1.3l-2.4-1-2 3.4 2 1.6a8.4 8.4 0 000 2.6l-2 1.6 2 3.4 2.4-1a8.5 8.5 0 002.2 1.3l.4 2.4h4l.4-2.4a8.5 8.5 0 002.2-1.3l2.4 1 2-3.4-2-1.6c.07-.43.1-.86.1-1.3z' },
 ];
 
-// Apple 风格浅色主题（不用 darkTheme，仅保留类型引用以备切换）
-void darkTheme;
-const overrides: GlobalThemeOverrides = {
-  common: {
-    primaryColor: '#0071e3',
-    primaryColorHover: '#0077ed',
-    primaryColorPressed: '#0068d1',
-    borderRadius: '10px',
-    fontSize: '14px',
-    fontFamily: '-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC","Microsoft YaHei UI",sans-serif',
-    cardBorderRadius: '14px',
-  },
-  Card: { borderRadius: '14px' },
-};
+// 明暗主题（v1.25 shadcn 化）：全部页面吃 CSS 变量令牌
+const { theme, toggle: toggleTheme } = useTheme();
 
 const sources = ref(0);
 onMounted(async () => {
@@ -52,8 +41,7 @@ function toggleSidebar() {
 </script>
 
 <template>
-  <n-config-provider :theme-overrides="overrides">
-    <n-message-provider>
+  <div>
       <div class="shell">
         <aside class="sidebar glassbar" :class="{ collapsed }">
           <div class="brand">
@@ -73,10 +61,19 @@ function toggleSidebar() {
               <span v-if="!collapsed">{{ n.label }}</span>
             </a>
           </nav>
-          <button class="collapse-btn" :title="collapsed ? '展开侧栏' : '折叠侧栏'" @click="toggleSidebar">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path :d="collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            <span v-if="!collapsed">折叠侧栏</span>
-          </button>
+          <!-- 底部操作区：整体贴底（仅容器 margin-top:auto，避免两个按钮各自 auto 把空白均分导致悬空） -->
+          <div class="sidebar-actions">
+            <!-- 明暗切换（v1.25）：月亮/太阳随主题换形 -->
+            <button class="collapse-btn" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="toggleTheme">
+              <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="14" height="14"><path d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66l1.41-1.41M4.93 19.07l1.41-1.41m0-11.32L4.93 4.93m14.14 14.14l-1.41-1.41M12 8a4 4 0 100 8 4 4 0 000-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+              <svg v-else viewBox="0 0 24 24" width="14" height="14"><path d="M21 12.8A8.5 8.5 0 1111.2 3a6.6 6.6 0 109.8 9.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              <span v-if="!collapsed">{{ theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
+            </button>
+            <button class="collapse-btn" :title="collapsed ? '展开侧栏' : '折叠侧栏'" @click="toggleSidebar">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path :d="collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              <span v-if="!collapsed">折叠侧栏</span>
+            </button>
+          </div>
           <div v-if="!collapsed" class="sidebar-foot dim">
             <div>纯本地 · 无遥测</div>
             <div>Phase 0-4 · UI-1</div>
@@ -95,8 +92,8 @@ function toggleSidebar() {
           </main>
         </div>
       </div>
-    </n-message-provider>
-  </n-config-provider>
+      <Toaster />
+  </div>
 </template>
 
 <style scoped>
@@ -126,15 +123,16 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   color: var(--text); font-size: 13.5px; font-weight: 500;
 }
 .nav-item svg { color: var(--dim); }
-.nav-item:hover { background: rgba(0, 0, 0, .05); }
+.nav-item:hover { background: var(--hover); }
 .nav-item.active { background: var(--accent); color: #fff; }
 .nav-item.active svg { color: #fff; }
+.sidebar-actions { margin-top: auto; display: flex; flex-direction: column; gap: 2px; }
 .collapse-btn {
-  margin-top: auto; display: flex; gap: 8px; align-items: center;
+  display: flex; gap: 8px; align-items: center;
   padding: 7px 12px; border-radius: 9px; border: none; background: transparent;
   color: var(--dim); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
 }
-.collapse-btn:hover { background: rgba(0, 0, 0, .05); color: var(--text); }
+.collapse-btn:hover { background: var(--hover); color: var(--text); }
 .sidebar-foot { margin-top: 6px; padding: 10px 12px; font-size: 11px; line-height: 1.8; }
 .content { flex: 1; min-width: 0; }
 main { padding: 24px 40px 56px; max-width: 1680px; margin: 0 auto; width: 100%; }

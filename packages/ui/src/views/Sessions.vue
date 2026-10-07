@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue';
-import { NInput, NEmpty, NTag, NButton, NSelect, NCheckbox, NCheckboxGroup, useMessage } from 'naive-ui';
+import UiButton from '../components/ui/Button.vue';
+import UiInput from '../components/ui/Input.vue';
+import UiBadge from '../components/ui/Badge.vue';
+import UiSelect from '../components/ui/Select.vue';
+import UiCheckbox from '../components/ui/Checkbox.vue';
+import UiEmpty from '../components/ui/Empty.vue';
+import UiTextarea from '../components/ui/Textarea.vue';
+import { toast } from '../components/ui/toast';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -256,7 +263,7 @@ function currentAssetId(): number {
 }
 
 // ---------- 会话提炼（P5.2）：圈选消息 → 三种产物（知识卡片/总结文档/记忆条目） ----------
-const message = useMessage();
+
 const distillOpen = ref(false);
 const distillSel = ref<number[]>([]);
 const distillTitle = ref('');
@@ -328,7 +335,7 @@ async function previewMemDiff() {
       body: JSON.stringify({ assetId: memTarget.value, entryText: renderEntry() }),
     })).json();
     if (r.ok) { memDiff.value = r.diff; memConflict.value = !!r.conflict; }
-    else { memDiff.value = null; message.error(r.error ?? '预览失败'); }
+    else { memDiff.value = null; toast.error(r.error ?? '预览失败'); }
   } finally {
     memPreviewing.value = false;
   }
@@ -343,9 +350,9 @@ async function writeMemory() {
     })).json();
     if (r.ok) {
       distillOpen.value = false;
-      message.success('已写入记忆文件（写前快照 #' + (r.snapshotId ?? '-') + '，可回滚）');
+      toast.success('已写入记忆文件（写前快照 #' + (r.snapshotId ?? '-') + '，可回滚）');
     } else {
-      message.error('写入失败: ' + (r.reason || r.error || ''));
+      toast.error('写入失败: ' + (r.reason || r.error || ''));
     }
   } finally {
     memWriting.value = false;
@@ -376,6 +383,10 @@ function onDistillSelChange(v: number[]) {
   distillSel.value = v;
   prefillBody();
 }
+function toggleDistillSel(seq: number, on: boolean) {
+  distillSel.value = on ? [...distillSel.value, seq] : distillSel.value.filter((x) => x !== seq);
+  prefillBody();
+}
 /** 用圈选的消息生成正文预填（每条截 2000 字符） */
 function prefillBody() {
   const picked = distillMsgs.value.filter((m) => distillSel.value.includes(m.seq));
@@ -399,7 +410,7 @@ async function aiSummarize() {
       body: JSON.stringify({ assetId: distillSource.value.assetId, subId: distillSource.value.subId, seqs: distillSel.value, product: distillProduct.value === 'memory' ? 'card' : distillProduct.value }),
     })).json();
     if (r.ok) distillBody.value = r.text;
-    else message.error(r.error ?? '生成失败');
+    else toast.error(r.error ?? '生成失败');
   } finally {
     llmGenerating.value = false;
   }
@@ -421,9 +432,9 @@ async function saveDistill() {
     })).json();
     if (r.ok) {
       distillOpen.value = false;
-      message.success(distillProduct.value === 'summary' ? '已存入知识库（总结文档）' : '已存入知识库');
+      toast.success(distillProduct.value === 'summary' ? '已存入知识库（总结文档）' : '已存入知识库');
     } else {
-      message.error('保存失败: ' + (r.error || ''));
+      toast.error('保存失败: ' + (r.error || ''));
     }
   } finally {
     distillSaving.value = false;
@@ -474,21 +485,28 @@ onMounted(async () => {
   <div class="page">
     <!-- 顶部 52px 工具 Tab 栏 -->
     <div class="toolbar glassbar">
-      <button class="tab" :class="{ on: activeTool === null }" @click="selectTool(null)">
+      <UiButton
+        size="sm" class="h-9 gap-1.5 px-3"
+        :variant="activeTool === null ? 'default' : 'ghost'"
+        @click="selectTool(null)"
+      >
         <span class="tab-dot" style="background:#8e8e93;color:#fff">A</span>
         <span class="tab-name">全部工具</span>
         <span class="tab-n">{{ totalCount }}</span>
-      </button>
-      <button
-        v-for="t in TOOLS" :key="t.id" class="tab" :class="{ on: activeTool === t.id }" @click="selectTool(t.id)"
+      </UiButton>
+      <UiButton
+        v-for="t in TOOLS" :key="t.id"
+        size="sm" class="h-9 gap-1.5 px-3"
+        :variant="activeTool === t.id ? 'default' : 'ghost'"
+        @click="selectTool(t.id)"
       >
         <img v-if="t.logo" class="tab-logo" :src="t.logo" :alt="t.name">
         <span v-else class="tab-dot" :style="{ background: t.color }">{{ t.letter }}</span>
         <span class="tab-name">{{ t.name }}</span>
         <span class="tab-n">{{ toolStats.get(t.id)?.count ?? 0 }}</span>
-      </button>
+      </UiButton>
       <span class="flex1" />
-      <n-input v-model:value="globalQ" placeholder="全局搜索（跨工具，Enter）" size="small" round clearable style="width:300px" @keydown.enter="globalSearch" />
+      <UiInput v-model:value="globalQ" placeholder="全局搜索（跨工具，Enter）" class="w-[300px]" @keydown.enter="globalSearch" />
     </div>
 
     <div class="body">
@@ -499,10 +517,11 @@ onMounted(async () => {
           <span class="dim small">最近更新</span>
         </div>
         <div class="list-search">
-          <n-input v-model:value="listQ" placeholder="搜索当前列表…" size="small" round clearable />
-          <n-select
-            v-if="projectOptions.length" v-model:value="projectFilter" :options="projectOptions"
-            placeholder="按项目归集" size="small" clearable filterable style="margin-top:6px"
+          <UiInput v-model:value="listQ" placeholder="搜索当前列表…" />
+          <UiSelect
+            v-if="projectOptions.length" v-model:value="projectFilter"
+            :options="[{ label: '全部项目', value: '' }, ...projectOptions]"
+            placeholder="按项目归集" class="mt-1.5 w-full"
           />
         </div>
         <div class="list-scroll">
@@ -515,7 +534,7 @@ onMounted(async () => {
             <div class="dim small">{{ h.model ?? '未知模型' }}<template v-if="h.messageCount"> · {{ h.messageCount }} 条消息</template><template v-if="h.tokensTotal"> · {{ fmtTok(h.tokensTotal) }} tok</template></div>
             <div class="dim small s-path">{{ h.projectPath ?? h.path }}</div>
           </div>
-          <n-empty :description="listQ ? '没有匹配的会话' : '选择上方工具查看会话'" size="small" style="padding:36px 0" />
+          <UiEmpty :description="listQ ? '没有匹配的会话' : '选择上方工具查看会话'" size="small" style="padding:36px 0" />
         </div>
       </div>
       <div class="resizer" title="拖动调整宽度" @mousedown="startResize" />
@@ -526,15 +545,15 @@ onMounted(async () => {
           <div class="d-head">
             <div class="d-title">{{ readMeta.title }}</div>
             <div class="d-tags">
-              <n-tag size="tiny" :bordered="false" round type="primary">{{ TOOLS.find((t) => t.id === readMeta.tool)?.name ?? readMeta.tool }}</n-tag>
-              <n-tag v-if="readMeta.meta?.model" size="tiny" :bordered="false" round>{{ readMeta.meta.model }}</n-tag>
-              <n-tag v-if="msgs.length" size="tiny" :bordered="false" round>{{ msgs.length }} 条消息</n-tag>
-              <n-tag v-if="readMeta.meta?.startedAt" size="tiny" :bordered="false" round>{{ fmtFull(readMeta.meta.startedAt) }}</n-tag>
+              <UiBadge type="info">{{ TOOLS.find((t) => t.id === readMeta.tool)?.name ?? readMeta.tool }}</UiBadge>
+              <UiBadge v-if="readMeta.meta?.model">{{ readMeta.meta.model }}</UiBadge>
+              <UiBadge v-if="msgs.length">{{ msgs.length }} 条消息</UiBadge>
+              <UiBadge v-if="readMeta.meta?.startedAt">{{ fmtFull(readMeta.meta.startedAt) }}</UiBadge>
             </div>
             <div class="d-actions">
-              <n-button size="tiny" round type="primary" secondary @click="openDistill" title="把该会话提炼为知识卡片">✦ 提炼</n-button>
-              <n-button size="tiny" round quaternary title="复制标题">⧉</n-button>
-              <n-button size="tiny" round quaternary title="回到顶部">↑</n-button>
+              <UiButton variant="secondary" @click="openDistill" title="把该会话提炼为知识卡片">✦ 提炼</UiButton>
+              <UiButton variant="ghost" title="复制标题" @click="copyMsg(readMeta?.title ?? '')">⧉</UiButton>
+              <UiButton variant="ghost" title="回到顶部" @click="window.scrollTo({ top: 0 })">↑</UiButton>
             </div>
           </div>
           <div class="d-tabs glassbar">
@@ -576,9 +595,9 @@ onMounted(async () => {
                     v-html="mdHtml(m)"
                   ></div>
                   <div v-else class="msg" :class="[m.role || 'assistant', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
-                  <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
+                  <UiButton v-if="isLongMsg(m)" size="xs" variant="outline" class="!text-primary" @click="toggleMsg(m)">
                     {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
-                  </button>
+                  </UiButton>
                 </div>
                 </div>
               </div>
@@ -628,12 +647,12 @@ onMounted(async () => {
                 <div v-for="(m, i) in toolMsgs" :key="i" class="msg-block">
                   <div class="who">工具 · {{ fmtFull(m.ts) }}</div>
                   <div class="msg" :class="['tool', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
-                  <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
+                  <UiButton v-if="isLongMsg(m)" size="xs" variant="outline" class="!text-primary" @click="toggleMsg(m)">
                     {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
-                  </button>
+                  </UiButton>
                 </div>
               </div>
-              <n-empty v-else description="本会话未解析到工具调用记录（结构化工具调用解析将随会话解析增强提供）" style="padding:60px 0" />
+              <UiEmpty v-else description="本会话未解析到工具调用记录（结构化工具调用解析将随会话解析增强提供）" style="padding:60px 0" />
             </div>
             <!-- Files -->
             <div v-else-if="detailTab === 'files'" class="overview">
@@ -690,7 +709,7 @@ onMounted(async () => {
                     <span v-if="thinkCollapsed(m) && m.text.length > THINK_PREVIEW_CHARS" class="think-more">点击展开全文</span>
                   </div>
                 </template>
-                <n-empty v-else description="本会话没有思考记录（该工具/模型未开启思考模式，或思考内容不可读）" style="padding:60px 0" />
+                <UiEmpty v-else description="本会话没有思考记录（该工具/模型未开启思考模式，或思考内容不可读）" style="padding:60px 0" />
               </div>
               <!-- 思考索引导航 -->
               <aside v-if="thinkingMsgs.length > 1" class="anchor-nav think-nav">
@@ -711,22 +730,22 @@ onMounted(async () => {
                 <div v-for="(m, i) in systemMsgs" :key="i" class="msg-block">
                   <div class="who">{{ roleLabel[m.role ?? ''] ?? m.role }} · {{ fmtFull(m.ts) }}</div>
                   <div class="msg" :class="['developer', { clamped: isCollapsed(m) }]">{{ isCollapsed(m) ? clipText(m) : m.text }}</div>
-                  <button v-if="isLongMsg(m)" class="fold-btn" @click="toggleMsg(m)">
+                  <UiButton v-if="isLongMsg(m)" size="xs" variant="outline" class="!text-primary" @click="toggleMsg(m)">
                     {{ isCollapsed(m) ? `展开全文 · 共 ${m.text.length.toLocaleString()} 字符` : '收起' }}
-                  </button>
+                  </UiButton>
                 </div>
               </div>
-              <n-empty v-else description="本会话没有系统注入消息" style="padding:60px 0" />
+              <UiEmpty v-else description="本会话没有系统注入消息" style="padding:60px 0" />
             </div>
             <!-- Raw -->
             <div v-else-if="detailTab === 'raw'">
               <div v-if="rawLoading" class="dim small" style="padding:20px">加载中…</div>
               <pre v-else-if="rawText !== null" class="raw">{{ rawText }}</pre>
-              <n-empty v-else description="选择会话后加载原文" style="padding:60px 0" />
+              <UiEmpty v-else description="选择会话后加载原文" style="padding:60px 0" />
             </div>
           </div>
         </template>
-        <n-empty v-else description="从左侧选择一个会话" style="margin:auto" />
+        <UiEmpty v-else description="从左侧选择一个会话" style="margin:auto" />
       </div>
     </div>
 
@@ -735,31 +754,29 @@ onMounted(async () => {
       <div class="modal card">
         <div class="insp-title">提炼会话</div>
         <div class="dim small" style="margin-top:4px">只圈选用户的文本与助手的正文（不含工具调用与系统注入）。勾选变化会重新生成正文预填，可在正文里继续手工编辑。</div>
-        <n-select v-model:value="distillProduct" :options="productOptions" size="small" round style="margin-top:10px; width: 260px" />
-        <n-checkbox-group :value="distillSel" @update:value="onDistillSelChange">
-          <div class="distill-list">
-            <label v-for="m in distillMsgs" :key="m.seq" class="distill-item">
-              <n-checkbox :value="m.seq" />
-              <n-tag size="tiny" :bordered="false" round :type="m.role === 'user' ? 'info' : 'default'">{{ m.role === 'user' ? '用户' : '助手' }}</n-tag>
-              <span class="distill-text">{{ m.text.replace(/s+/g, ' ').slice(0, 180) }}</span>
-            </label>
-          </div>
-        </n-checkbox-group>
-        <n-input v-model:value="distillTitle" :placeholder="distillProduct === 'memory' ? '条目标题' : '标题'" size="small" round style="margin-top:12px" />
-        <n-input v-if="distillProduct !== 'memory'" v-model:value="distillTags" placeholder="标签（逗号分隔）" size="small" round style="margin-top:8px" />
-        <n-input v-if="distillProduct === 'summary'" v-model:value="distillProject" placeholder="所属项目路径（可选）" size="small" round style="margin-top:8px" />
+        <UiSelect v-model:value="distillProduct" :options="productOptions" class="mt-2.5 w-[260px]" />
+        <div class="distill-list">
+          <label v-for="m in distillMsgs" :key="m.seq" class="distill-item">
+            <UiCheckbox :checked="distillSel.includes(m.seq)" @update:checked="(on: boolean) => toggleDistillSel(m.seq, on)" />
+            <UiBadge :type="m.role === 'user' ? 'info' : 'default'">{{ m.role === 'user' ? '用户' : '助手' }}</UiBadge>
+            <span class="distill-text">{{ m.text.replace(/s+/g, ' ').slice(0, 180) }}</span>
+          </label>
+        </div>
+        <UiInput v-model:value="distillTitle" :placeholder="distillProduct === 'memory' ? '条目标题' : '标题'" class="mt-3" />
+        <UiInput v-if="distillProduct !== 'memory'" v-model:value="distillTags" placeholder="标签（逗号分隔）" class="mt-2" />
+        <UiInput v-if="distillProduct === 'summary'" v-model:value="distillProject" placeholder="所属项目路径（可选）" class="mt-2" />
 
         <!-- 记忆条目：目标 + 模板 + diff 预览 -->
         <template v-if="distillProduct === 'memory'">
           <div class="mem-row" style="margin-top:8px">
             <span class="dim small">写入目标</span>
-            <n-select v-model:value="memTarget" :options="memTargetOptions" size="small" style="flex:1" placeholder="选择记忆文件" />
+            <UiSelect v-model:value="memTarget" :options="memTargetOptions" class="flex-1" placeholder="选择记忆文件" />
           </div>
           <div class="mem-row" style="margin-top:8px">
             <span class="dim small">格式模板</span>
-            <n-select v-model:value="memTplKey" :options="MEM_TEMPLATES.map((m) => ({ label: m.label, value: m.key }))" size="small" style="flex:1" />
+            <UiSelect v-model:value="memTplKey" :options="MEM_TEMPLATES.map((m) => ({ label: m.label, value: m.key }))" class="flex-1" />
           </div>
-          <n-input v-if="memTplKey === 'custom'" v-model:value="memTplCustom" type="textarea" placeholder="自定义模板，支持占位符 {date} {title} {summary} {source}" :autosize="{ minRows: 2, maxRows: 5 }" style="margin-top:8px" />
+          <UiTextarea v-if="memTplKey === 'custom'" v-model:value="memTplCustom" :rows="3" placeholder="自定义模板，支持占位符 {date} {title} {summary} {source}" class="mt-2 font-mono text-xs" />
           <div v-else class="dim small mono" style="margin-top:8px; white-space: pre-wrap;">→ {{ memTplText.replace('{date}', '2026-10-07').replace('{title}', '标题').replace('{summary}', '摘要内容').replace('{source}', '工具「会话」') }}</div>
           <div v-if="!memTargets.length" class="dim small" style="margin-top:8px">没有可写回的记忆文件（各工具记忆页签下才有可写目标）。</div>
           <div v-if="memDiff" class="mem-diff">
@@ -772,18 +789,18 @@ onMounted(async () => {
           <div v-if="!memAllowWrite" class="dim small" style="margin-top:6px">写回开关未开启（walle write-enable）——可先预览 diff，写入需要开启写回。</div>
         </template>
 
-        <n-input v-model:value="distillBody" type="textarea" :placeholder="distillProduct === 'memory' ? '记忆条目内容（{summary} 占位符引用此内容）' : '正文（Markdown）'" :autosize="{ minRows: 6, maxRows: 14 }" style="margin-top:8px" />
+        <UiTextarea v-model:value="distillBody" :rows="8" :placeholder="distillProduct === 'memory' ? '记忆条目内容（{summary} 占位符引用此内容）' : '正文（Markdown）'" class="mt-2 font-mono text-xs leading-relaxed" />
         <div class="dim small" style="margin-top:8px" v-if="!llmConfigured">未配置大模型（设置页可配 OpenAI 兼容接口）——当前为手动提炼模式，直接编辑上方正文即可。</div>
         <div class="modal-act">
-          <n-button v-if="llmConfigured" size="tiny" round type="info" secondary :loading="llmGenerating" :disabled="!distillSel.length" @click="aiSummarize">✦ AI 生成摘要</n-button>
+          <UiButton v-if="llmConfigured" variant="secondary" class="!text-primary" :loading="llmGenerating" :disabled="!distillSel.length" @click="aiSummarize">✦ AI 生成摘要</UiButton>
           <template v-if="distillProduct === 'memory'">
-            <n-button size="tiny" round :loading="memPreviewing" :disabled="memTarget == null || !distillBody.trim()" @click="previewMemDiff">预览 diff</n-button>
-            <n-button size="tiny" round @click="distillOpen = false">取消</n-button>
-            <n-button size="tiny" round type="primary" :loading="memWriting" :disabled="memTarget == null || !distillBody.trim() || !distillTitle.trim()" @click="writeMemory">写入记忆</n-button>
+            <UiButton variant="outline" :loading="memPreviewing" :disabled="memTarget == null || !distillBody.trim()" @click="previewMemDiff">预览 diff</UiButton>
+            <UiButton variant="ghost" @click="distillOpen = false">取消</UiButton>
+            <UiButton :loading="memWriting" :disabled="memTarget == null || !distillBody.trim() || !distillTitle.trim()" @click="writeMemory">写入记忆</UiButton>
           </template>
           <template v-else>
-            <n-button size="tiny" round @click="distillOpen = false">取消</n-button>
-            <n-button size="tiny" round type="primary" :loading="distillSaving" :disabled="!distillSel.length || !distillTitle.trim()" @click="saveDistill">存入知识库</n-button>
+            <UiButton variant="ghost" @click="distillOpen = false">取消</UiButton>
+            <UiButton :loading="distillSaving" :disabled="!distillSel.length || !distillTitle.trim()" @click="saveDistill">存入知识库</UiButton>
           </template>
         </div>
       </div>
