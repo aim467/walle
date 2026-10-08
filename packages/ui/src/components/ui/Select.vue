@@ -2,7 +2,9 @@
 import { SelectRoot, SelectTrigger, SelectValue, SelectPortal, SelectContent, SelectViewport, SelectItem, SelectItemText, SelectItemIndicator } from 'reka-ui';
 import { cn } from '../../lib/utils';
 
-/** shadcn 风格 Select（reka-ui 封装）：v-model:value，options 支持分组 {type:'group',label,children} */
+/** shadcn 风格 Select（reka-ui 封装）：v-model:value，options 支持分组 {type:'group',label,children}
+ *  注意：选项 value 不能为空字符串——reka-ui 保留空串表示「清空选择→显示 placeholder」，
+ *  传入会在 SelectItem 内直接抛错。需要「全部/不限」这类选项时请用非空哨兵值（如 '__all__'）。 */
 export interface SelectOption { label: string; value: string | number; disabled?: boolean }
 export interface SelectGroup { type: 'group'; label: string; children: SelectOption[] }
 interface Props {

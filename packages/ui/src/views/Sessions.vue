@@ -81,13 +81,16 @@ const listTitle = computed(() => {
 });
 const listFiltered = computed(() => {
   let rows = hits.value;
-  if (projectFilter.value) rows = rows.filter((h) => h.projectPath === projectFilter.value);
+  if (projectFilter.value && projectFilter.value !== ALL_PROJECTS) rows = rows.filter((h) => h.projectPath === projectFilter.value);
   if (!listQ.value.trim()) return rows;
   const s = listQ.value.toLowerCase();
   return rows.filter((h) => (h.title ?? '').toLowerCase().includes(s) || (h.projectPath ?? '').toLowerCase().includes(s) || (h.model ?? '').toLowerCase().includes(s));
 });
-/** 项目归集筛选：当前工具下出现过的项目路径（显示名取末段 + 会话数，值为完整路径） */
-const projectFilter = ref<string | null>(null);
+/** 项目归集筛选：当前工具下出现过的项目路径（显示名取末段 + 会话数，值为完整路径）。
+ *  「全部项目」必须用**非空哨兵值**——reka-ui 的 SelectItem 禁止 value 为空字符串
+ *  （空串被保留表示「清空选择→显示 placeholder」，传入会直接抛错）。 */
+const ALL_PROJECTS = '__all__';
+const projectFilter = ref<string>(ALL_PROJECTS);
 const projectOptions = computed(() => {
   const m = new Map<string, number>();
   for (const h of hits.value) if (h.projectPath) m.set(h.projectPath, (m.get(h.projectPath) ?? 0) + 1);
@@ -224,7 +227,7 @@ async function loadSessions() {
 function selectTool(id: string | null) {
   activeTool.value = id;
   listQ.value = '';
-  projectFilter.value = null;
+  projectFilter.value = ALL_PROJECTS;
   const p = new URLSearchParams({ sessions: '1' });
   if (id) p.set('tool', id);
   fetch('/api/list?' + p).then((r) => r.json()).then((d) => { hits.value = d.hits ?? []; });
@@ -233,6 +236,7 @@ async function globalSearch() {
   if (!globalQ.value.trim()) return;
   activeTool.value = null;
   listQ.value = '';
+  projectFilter.value = ALL_PROJECTS;
   const d = await (await fetch('/api/list?q=' + encodeURIComponent(globalQ.value.trim()))).json();
   hits.value = d.hits ?? [];
 }
@@ -520,7 +524,7 @@ onMounted(async () => {
           <UiInput v-model:value="listQ" placeholder="搜索当前列表…" />
           <UiSelect
             v-if="projectOptions.length" v-model:value="projectFilter"
-            :options="[{ label: '全部项目', value: '' }, ...projectOptions]"
+            :options="[{ label: '全部项目', value: ALL_PROJECTS }, ...projectOptions]"
             placeholder="按项目归集" class="mt-1.5 w-full"
           />
         </div>
