@@ -92,6 +92,17 @@ async function save() {
 
 function resetOne(key: string) { edit.value[key] = ''; }
 
+/** 复制完整路径（输入框会省略中段，复制按钮保证「拿到的一定是全路径」） */
+async function copyPath(p: string) {
+  if (!p) return;
+  try {
+    await navigator.clipboard.writeText(p);
+    toast.success(`已复制：${p}`);
+  } catch {
+    toast.error('复制失败，请手动选中输入框内容复制');
+  }
+}
+
 // ---------- 本地文件夹选择（「浏览…」） ----------
 const picking = ref<string | null>(null); // 正在等待系统选择器的字段 key
 const pickedPath = ref<Record<string, string>>({}); // 本会话手动选过的路径（用于即时修正「目录存在」徽标）
@@ -106,6 +117,12 @@ const browserLoading = ref(false);
 function existsOf(r: RootDef): boolean {
   const p = edit.value[r.key];
   return !!(p && pickedPath.value[r.key] === p) || r.exists;
+}
+
+/** 列表里只显示标签主体：`知识库（~/.walle/knowledge）` → `知识库`
+ *  （括号里的默认路径紧挨着的输入框已经展示，重复一遍纯属噪音；完整名放 title） */
+function shortLabel(label: string): string {
+  return label.replace(/（[^）]*）\s*$/, '');
 }
 
 /** 打开本地文件夹：优先系统原生选择器，不可用时回退内置目录浏览器 */
@@ -267,58 +284,95 @@ async function rescanNow() {
       </div>
     </div>
 
-    <!-- 工具路径卡片网格 -->
-    <div class="tool-grid">
-      <section v-for="g in grouped" :key="g.tool" class="card tool-tile">
-        <header class="tile-head">
-          <div class="tool-id">
+    <!-- 工具路径：一行一个路径（1 个路径的工具 = 1 行，2 个 = 2 行，天然对齐且不吃卡片空白） -->
+    <section class="card paths-card">
+      <header class="tile-head">
+        <div class="tool-id">
+          <span class="logo-tile">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+              <path d="M3 7a2 2 0 012-2h3.6l1.6 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <strong>工具数据源路径</strong>
+        </div>
+        <span class="dim small">{{ data?.roots.length ?? 0 }} 个路径 · 留空即用默认</span>
+      </header>
+
+      <div class="path-groups">
+        <div v-for="g in grouped" :key="g.tool" class="path-group">
+          <div class="group-id">
             <span class="logo-tile">
               <img class="tool-logo" :src="toolLogos[g.tool]" :alt="g.tool">
             </span>
-            <strong>{{ toolLabel[g.tool] ?? g.tool }}</strong>
+            <span class="group-name">
+              <strong>{{ toolLabel[g.tool] ?? g.tool }}</strong>
+              <span v-if="g.roots.length > 1" class="dim small">{{ g.roots.length }} 个路径</span>
+            </span>
           </div>
-          <!-- <UiBadge>{{ g.tool }}</UiBadge> -->
-        </header>
 
-        <div class="tile-body">
-          <div v-for="r in g.roots" :key="r.key" class="field">
-            <div class="field-label">
-              <span>{{ r.label }}</span>
-              <UiBadge :type="existsOf(r) ? 'success' : 'warning'">
-                {{ existsOf(r) ? '目录存在' : '目录不存在' }}
-              </UiBadge>
-              <UiBadge v-if="r.envRedirect && !r.override">环境变量重定向</UiBadge>
-            </div>
-            <div class="path-row">
-              <div class="path-input">
-                <UiInput
-                  v-model:value="edit[r.key]"
-                  :placeholder="r.defaultRoot"
-                  class="field-input"
-                  @update:value="(v: string) => { if (!v) resetOne(r.key) }"
-                />
+          <div class="group-rows">
+            <div v-for="r in g.roots" :key="r.key" class="path-item">
+              <div class="item-label">
+                <span class="item-name" :title="r.label">
+                  <span
+                    class="dot"
+                    :class="existsOf(r) ? 'is-ok' : 'is-warn'"
+                    :title="existsOf(r) ? '目录存在' : '目录不存在'"
+                  />
+                  {{ shortLabel(r.label) }}
+                </span>
+                <span v-if="!existsOf(r) || (r.envRedirect && !r.override)" class="item-badges">
+                  <UiBadge v-if="!existsOf(r)" type="warning">目录不存在</UiBadge>
+                  <UiBadge v-if="r.envRedirect && !r.override">环境变量重定向</UiBadge>
+                </span>
               </div>
-              <UiButton
-                variant="secondary"
-                :loading="picking === r.key"
-                :disabled="picking !== null && picking !== r.key"
-                title="打开本地文件夹选择器"
-                @click="openPicker(r)"
-              >
-                <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
-                  <path d="M3 7a2 2 0 012-2h3.6l1.6 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                </svg>
-                浏览…
-              </UiButton>
-            </div>
-            <div class="dim small field-meta">默认：{{ r.defaultRoot }}</div>
-            <div v-if="r.effectiveRoot !== r.defaultRoot" class="dim small field-meta">
-              当前生效：{{ r.effectiveRoot }}
+
+              <div class="item-field">
+                <div class="path-row">
+                  <UiInput
+                    v-model:value="edit[r.key]"
+                    :placeholder="r.defaultRoot"
+                    class="field-input"
+                    :title="edit[r.key] || r.defaultRoot"
+                    @update:value="(v: string) => { if (!v) resetOne(r.key) }"
+                  />
+                  <UiButton
+                    variant="secondary"
+                    :loading="picking === r.key"
+                    :disabled="picking !== null && picking !== r.key"
+                    title="打开本地文件夹选择器"
+                    @click="openPicker(r)"
+                  >
+                    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                      <path d="M3 7a2 2 0 012-2h3.6l1.6 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                    </svg>
+                    浏览…
+                  </UiButton>
+                  <UiButton
+                    variant="ghost"
+                    class="copy-btn"
+                    :title="`复制完整路径：${edit[r.key] || r.effectiveRoot || r.defaultRoot}`"
+                    @click="copyPath(edit[r.key] || r.effectiveRoot || r.defaultRoot)"
+                  >
+                    <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                      <rect x="8.5" y="8.5" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+                      <path d="M15.5 5.5A2.5 2.5 0 0013 3H5.5A2.5 2.5 0 003 5.5V13a2.5 2.5 0 002.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                    </svg>
+                  </UiButton>
+                </div>
+                <!-- 只在「默认值已不可见 / 生效值与默认不同」时才补一行，避免和 placeholder 重复 -->
+                <div v-if="edit[r.key]" class="field-meta dim small">
+                  默认 <span class="mono path-text">{{ r.defaultRoot }}</span>
+                </div>
+                <div v-else-if="r.effectiveRoot !== r.defaultRoot" class="field-meta dim small">
+                  当前生效 <span class="mono path-text">{{ r.effectiveRoot }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
 
     <!-- 大模型配置（OpenAI 兼容） -->
     <section class="card llm-card">
@@ -422,16 +476,51 @@ async function rescanNow() {
 .head-text h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.01em; }
 .mono { font-family: "SF Mono", ui-monospace, Consolas, monospace; }
 
-/* 工具卡片网格 */
-.tool-grid {
+/* 工具路径：行式列表（替代卡片网格）
+   一个工具 = 一组；一个路径 = 一行。字段数不同的工具不再互相撑高，
+   所有输入框左边缘共用同一条基线 → 天然对齐；输入框拿到整行剩余宽度 → 全路径可见 */
+.paths-card { overflow: hidden; }
+
+.path-groups { display: flex; flex-direction: column; }
+.path-group {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
-  align-items: stretch;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px;
+  padding: 13px 18px;
+  align-items: center;
+  transition: background-color .15s ease;
 }
-.tool-tile { overflow: hidden; transition: transform .25s ease, box-shadow .25s ease; }
-.tool-tile:hover { transform: translateY(-2px); box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 14px 34px rgba(0,0,0,.10); }
-:global(.dark) .tool-tile:hover { box-shadow: 0 2px 6px rgba(0,0,0,.5), 0 14px 34px rgba(0,0,0,.45); }
+.path-group:hover { background: hsl(var(--foreground) / .02); }
+.path-group + .path-group { border-top: 1px solid var(--border); }
+
+.group-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.group-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.group-name strong { font-size: 13.5px; font-weight: 600; }
+
+.group-rows { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+/* 一行一个路径：左列固定宽度标签 → 输入框起点全行一致 */
+.path-item {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 6px 14px;
+  align-items: center;
+}
+.item-label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.item-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; line-height: 1.35; white-space: nowrap; }
+.item-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* 目录状态：常态只留一个点（hover 有 title），异常才升级成徽标，避免 11 行重复「目录存在」 */
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot.is-ok { background: var(--ok); }
+.dot.is-warn { background: var(--warn); }
+
+.item-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.path-text { word-break: break-all; }
+
+.copy-btn { opacity: .35; transition: opacity .15s ease; }
+.path-item:hover .copy-btn,
+.copy-btn:focus-visible { opacity: 1; }
 
 .tile-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -453,11 +542,15 @@ async function rescanNow() {
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 13px; flex-wrap: wrap; }
-.path-row { display: flex; align-items: center; gap: 8px; }
+.path-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .path-input { flex: 1; min-width: 0; }
+/* flex-basis 优先于 width：输入框吃满剩余宽度，但窄到放不下按钮时按钮换行、输入框独占整行
+   （必须限定在 .path-row 内，否则会波及大模型卡片里同样用 .field-input 的输入框） */
 .field-input { width: 100%; }
+.path-row .field-input { flex: 1 1 200px; width: auto; min-width: 0; }
+.path-row > button { flex: 0 0 auto; }
 .field-meta { font-size: 11.5px; line-height: 1.5; }
-:deep(.field-input) input { text-overflow: ellipsis; }
+:deep(.field-input) input { min-width: 0; text-overflow: ellipsis; }
 
 /* 内置目录浏览器（兜底） */
 .browser { display: flex; flex-direction: column; gap: 8px; }
@@ -492,7 +585,15 @@ async function rescanNow() {
 
 .foot-hint { margin-top: 14px; line-height: 1.6; }
 
-@media (max-width: 720px) {
+@media (max-width: 1150px) {
   .llm-fields { grid-template-columns: 1fr; }
+  /* 中等宽度：标签回到输入框上方，把横向空间全部让给路径 */
+  .path-item { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+  .item-label { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+}
+@media (max-width: 1000px) {
+  /* 窄屏：工具名也提到上方，路径独占整行 */
+  .path-group { grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: start; }
+  .group-rows { gap: 14px; }
 }
 </style>

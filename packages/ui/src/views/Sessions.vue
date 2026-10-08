@@ -490,7 +490,7 @@ onMounted(async () => {
     <!-- 顶部 52px 工具 Tab 栏 -->
     <div class="toolbar glassbar">
       <UiButton
-        size="sm" class="h-9 gap-1.5 px-3"
+        size="sm" class="h-9 gap-1.5 px-4"
         :variant="activeTool === null ? 'default' : 'ghost'"
         @click="selectTool(null)"
       >
@@ -816,7 +816,7 @@ onMounted(async () => {
 .page { margin: -24px -40px -56px; }
 /* 52px Tab 栏 */
 .toolbar {
-  height: 52px; display: flex; gap: 6px; align-items: center;
+  height: 52px; display: flex; gap: 10px; align-items: center;
   padding: 0 14px; position: sticky; top: 0; z-index: 20;
 }
 .tab {

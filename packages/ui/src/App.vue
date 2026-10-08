@@ -74,10 +74,6 @@ function toggleSidebar() {
               <span v-if="!collapsed">折叠侧栏</span>
             </button>
           </div>
-          <div v-if="!collapsed" class="sidebar-foot dim">
-            <div>纯本地 · 无遥测</div>
-            <div>Phase 0-4 · UI-1</div>
-          </div>
         </aside>
         <div class="content">
           <main>
