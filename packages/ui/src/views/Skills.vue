@@ -498,13 +498,13 @@ onMounted(load);
                 </UiBadge>
               </span>
             </span>
-            <span class="srow-tools">
+            <!-- <span class="srow-tools">
               <img
                 v-for="e in s.entries.slice(0, 3)" :key="e.tool + e.path"
                 class="srow-tool-logo" :src="toolLogo(e.tool)" :alt="toolName(e.tool)" :title="toolName(e.tool)"
               >
               <span v-if="s.entries.length > 3" class="dim small">+{{ s.entries.length - 3 }}</span>
-            </span>
+            </span> -->
           </div>
           <UiEmpty v-if="!filtered.length && !loading" description="没有匹配的技能" size="small" style="padding:36px 0" />
         </div>
@@ -516,16 +516,18 @@ onMounted(load);
           <div class="insp-head">
             <img class="insp-logo" :src="groupLogo(selected)" alt="">
             <div class="insp-id">
-              <div class="insp-title">{{ selected.name }}</div>
+              <div class="insp-title-row">
+                <div class="insp-title" :title="selected.name">{{ selected.name }}</div>
+                <div class="insp-act">
+                  <UiButton variant="secondary" @click="notYet('编辑技能')">编辑</UiButton>
+                  <UiDropdownMenu :options="moreOptions" @select="onMore">
+                    <template #trigger>
+                      <UiButton variant="secondary">···</UiButton>
+                    </template>
+                  </UiDropdownMenu>
+                </div>
+              </div>
               <div class="insp-desc dim">{{ selected.description ?? '（无描述）' }}</div>
-            </div>
-            <div class="insp-act">
-              <UiButton variant="secondary" @click="notYet('编辑技能')">编辑</UiButton>
-              <UiDropdownMenu :options="moreOptions" @select="onMore">
-                <template #trigger>
-                  <UiButton variant="secondary">···</UiButton>
-                </template>
-              </UiDropdownMenu>
             </div>
           </div>
           <div class="detail-sub">
@@ -837,11 +839,13 @@ onMounted(load);
 
 /* 右：详情 Inspector */
 .detail { flex: 1 1 auto; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; }
-.insp-head { flex: 0 0 auto; display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 8px; }
-.insp-logo { width: 22px; height: 22px; border-radius: 5px; object-fit: contain; background: #fff; border: 1px solid var(--border); flex-shrink: 0; margin-top: 1px; }
-.insp-id { flex: 1; min-width: 0; }
-.insp-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
-.insp-desc { font-size: 12px; margin-top: 2px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.insp-head { flex: 0 0 auto; display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px 11px; }
+.insp-logo { width: 30px; height: 30px; border-radius: 7px; object-fit: contain; background: #fff; border: 1px solid var(--border); flex-shrink: 0; }
+.insp-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* 标题与动作同处一行：动作右对齐，标题过长时省略而非换行顶开描述 */
+.insp-title-row { display: flex; align-items: center; gap: 12px; min-height: 30px; }
+.insp-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.insp-desc { font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .insp-act { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .detail-sub { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 0 16px 10px; border-bottom: 1px solid var(--border); }
 .pathbar { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; height: 30px; display: flex; align-items: center; padding: 0 10px; color: #5f646b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -335,7 +335,7 @@ onMounted(loadAll);
 .arow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .arow-name { font-size: 13.5px; font-weight: 600; display: flex; gap: 8px; align-items: center; min-width: 0; flex-wrap: wrap; }
 .arow-name-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ktag { flex-shrink: 0; font-size: 10px; font-weight: 500; color: var(--accent); background: rgba(0, 113, 227, .08); border-radius: 4px; padding: 0 4px; line-height: 14px; }
+.ktag { flex-shrink: 0; font-size: 10px; font-weight: 500; color: var(--accent); background: rgba(0, 113, 227, .08); border-radius: 4px; padding: 2px; line-height: 14px; }
 .ktag-sum { color: #7d5bd0; background: rgba(125, 91, 208, .1); }
 .tsep { flex: 0 0 1px; height: 18px; background: var(--border); margin: 0 8px; }
 
@@ -343,7 +343,7 @@ onMounted(loadAll);
 .empty-detail { align-items: center; justify-content: center; }
 .insp-head { flex: 0 0 auto; display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .insp-id { flex: 1; min-width: 0; }
-.insp-title { font-size: 15px; font-weight: 700; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.insp-title { font-size: 15px; font-weight: 700; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-bottom: 10px; }
 .insp-sub { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; color: var(--dim); line-height: 1.6; }
 .insp-act { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .src-line { flex: 0 0 auto; padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--text); }
