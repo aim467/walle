@@ -147,8 +147,10 @@ onMounted(load);
       <div v-for="(s, i) in sources" :key="s.tool" class="card src-card" :style="{ '--i': i }">
         <div class="card-head">
           <img class="card-logo" :src="toolLogos[s.tool]" :alt="s.tool">
-          <strong>{{ s.displayName }}</strong>
-          <UiBadge>{{ s.tool }}</UiBadge>
+          <div class="head-id">
+            <strong :title="s.displayName">{{ s.displayName }}</strong>
+            <UiBadge>{{ s.tool }}</UiBadge>
+          </div>
           <span class="stat-num">{{ s.total.toLocaleString('en-US') }}</span>
         </div>
         <div class="kinds">
@@ -170,37 +172,43 @@ onMounted(load);
           <template v-if="usageTotal().cost > 0"> · 成本 {{ usageTotal().cost.toFixed(2) }}</template>
         </span>
       </div>
-      <div class="card usage-card">
-        <table class="usage-table">
-          <thead>
-            <tr><th>工具</th><th class="num">会话</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存读</th><th class="num">合计</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="u in usageRows()" :key="u.tool">
-              <td><img class="usage-logo" :src="toolLogos[u.tool]" alt=""><span>{{ toolLabel[u.tool] ?? u.tool }}</span></td>
-              <td class="num">{{ u.withUsage }}<span v-if="u.sessions > u.withUsage" class="dim"> / {{ u.sessions }}</span></td>
-              <td class="num">{{ fmtTok(u.input) }}</td>
-              <td class="num">{{ fmtTok(u.output) }}</td>
-              <td class="num">{{ fmtTok(u.cacheRead) }}</td>
-              <td class="num strong">{{ fmtTok(u.total) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- 双栏仪表盘：左＝按工具明细 + 近 14 天趋势，右＝Top 项目（长列表独占一栏，两栏等高收边） -->
+      <div class="usage-body">
+        <div class="usage-col">
+          <div class="card usage-card table-card">
+            <table class="usage-table">
+              <thead>
+                <tr><th>工具</th><th class="num">会话</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存读</th><th class="num">合计</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in usageRows()" :key="u.tool">
+                  <td><img class="usage-logo" :src="toolLogos[u.tool]" alt=""><span>{{ toolLabel[u.tool] ?? u.tool }}</span></td>
+                  <td class="num">{{ u.withUsage }}<span v-if="u.sessions > u.withUsage" class="dim"> / {{ u.sessions }}</span></td>
+                  <td class="num">{{ fmtTok(u.input) }}</td>
+                  <td class="num">{{ fmtTok(u.output) }}</td>
+                  <td class="num">{{ fmtTok(u.cacheRead) }}</td>
+                  <td class="num strong">{{ fmtTok(u.total) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-      <div class="usage-two">
-        <div>
-          <div class="dim small ub-title">近 14 天（按会话开始日，UTC）</div>
-          <div class="card usage-card">
-            <div class="bars">
-              <div v-for="(b, i) in dailyBars()" :key="b.day" class="bar-col" :title="b.day + ' · ' + fmtTok(b.total) + ' tokens'" :style="{ '--i': i }">
-                <div class="bar" :class="{ empty: b.total === 0 }" :style="{ height: b.height + '%' }"></div>
-                <span class="bar-label">{{ b.day.slice(8) }}</span>
+          <div class="usage-block">
+            <div class="dim small ub-title">近 14 天（按会话开始日，UTC）</div>
+            <div class="card usage-card bars-card">
+              <div class="bars">
+                <div v-for="(b, i) in dailyBars()" :key="b.day" class="bar-col" :title="b.day + ' · ' + fmtTok(b.total) + ' tokens'" :style="{ '--i': i }">
+                  <div class="bar-track">
+                    <div class="bar" :class="{ empty: b.total === 0 }" :style="{ height: b.height + '%' }"></div>
+                  </div>
+                  <span class="bar-label">{{ b.day.slice(8) }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div>
+
+        <div class="usage-block">
           <div class="dim small ub-title">Top 项目（按 token 用量）</div>
           <div class="card usage-card">
             <div v-for="p in projRows" :key="p.project" class="proj-row" :title="p.project">
@@ -243,9 +251,14 @@ h2 { margin: 0 0 3px; font-size: 23px; font-weight: 700; letter-spacing: -.2px; 
   border-color: hsl(var(--primary) / .32);
 }
 @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } }
-.stat-num { margin-left: auto; font-size: 22px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
-.card-head { display: flex; gap: 9px; align-items: center; margin-bottom: 12px; }
-.card-logo { width: 22px; height: 22px; border-radius: 6px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
+.stat-num { margin-left: auto; font-size: 22px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -.4px; white-space: nowrap; flex-shrink: 0; }
+/* 允许换行：卡片被压窄（高缩放比）时，数字会整块落到下一行右对齐，而不是溢出卡片外 */
+.card-head { display: flex; gap: 9px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+/* 图标+名称+徽标作为一个可收缩分组：换行时整组留在首行，只把数字挤到下一行 */
+.head-id { display: flex; gap: 9px; align-items: center; min-width: 0; }
+/* 工具名过长时收缩并截断，避免把徽标与数字挤出容器 */
+.head-id strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-logo { width: 22px; height: 22px; border-radius: 6px; object-fit: contain; background: #fff; border: 1px solid var(--border); flex-shrink: 0; }
 .kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
 .foot { line-height: 1.5; }
 .rescan-link { color: var(--accent); cursor: pointer; }
@@ -254,7 +267,15 @@ h2 { margin: 0 0 3px; font-size: 23px; font-weight: 700; letter-spacing: -.2px; 
 .usage { margin-top: 26px; }
 .usage-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
 .usage-head h3 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .1px; }
-.usage-card { max-width: 720px; padding: 10px 14px; }
+
+/* 左栏（明细表 + 趋势）与右栏（Top 项目）等高：短的一栏由卡片吃满剩余高度 */
+.usage-body { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.usage-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.usage-block { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.usage-block > .usage-card { flex: 1; min-height: 0; }
+.usage-card { padding: 10px 14px; }
+/* 极窄视口下表格列宽有下限，交给卡片自己横滚，避免整页出现横向滚动条 */
+.table-card { overflow-x: auto; }
 .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .usage-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 10px; border-bottom: 1px solid var(--border); }
 .usage-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); transition: background .15s ease; }
@@ -266,14 +287,18 @@ h2 { margin: 0 0 3px; font-size: 23px; font-weight: 700; letter-spacing: -.2px; 
 .usage-logo { width: 16px; height: 16px; border-radius: 4px; object-fit: contain; background: #fff; border: 1px solid var(--border); vertical-align: -3px; margin-right: 7px; }
 .usage-table td:first-child { display: flex; align-items: center; }
 
-.usage-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; max-width: 980px; }
 .ub-title { margin-bottom: 6px; }
-.bars { display: flex; align-items: flex-end; gap: 5px; height: 116px; padding-top: 4px; }
-.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; cursor: default; }
-/* 单一品牌色，自底向上 scaleY 入场（GPU 友好，不动画布局属性）；移除蓝紫渐变 */
+.bars-card { display: flex; flex-direction: column; }
+.bars { display: flex; align-items: flex-end; gap: 5px; flex: 1; min-height: 116px; padding-top: 4px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; cursor: default; }
+/* 柱体轨道：柱高按轨道百分比计算，避免被下方日期标签挤压导致顶部柱体互相贴平 */
+.bar-track { flex: 1; width: 100%; min-height: 0; display: flex; align-items: flex-end; justify-content: center; }
+/* 单一品牌色，自底向上 scaleY 入场（GPU 友好，不动画布局属性）。
+   注意：这里必须写完整的 hsl()——--card 是「0 0% 100%」通道三元组，
+   直接塞进 color-mix 会构成非法颜色，导致整条 background 声明失效、柱子全透明 */
 .bar {
-  width: 100%; max-width: 26px; border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, hsl(var(--primary)), color-mix(in srgb, hsl(var(--primary)) 70%, var(--card)));
+  width: 100%; max-width: 34px; border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, hsl(var(--primary)), hsl(var(--primary) / .62));
   transform: scaleY(0); transform-origin: bottom;
   animation: barIn .55s cubic-bezier(.22, .61, .36, 1) forwards;
   animation-delay: calc(var(--i) * 35ms);
@@ -285,11 +310,17 @@ h2 { margin: 0 0 3px; font-size: 23px; font-weight: 700; letter-spacing: -.2px; 
 .bar-label { font-size: 9px; color: var(--dim); margin-top: 5px; white-space: nowrap; }
 
 .proj-row { position: relative; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 2px; border-bottom: 1px solid var(--border); overflow: hidden; }
-.proj-row:last-of-type { border-bottom: none; }
+.proj-row:last-child { border-bottom: none; }
 .proj-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: hsl(var(--primary) / .09); border-right: 2px solid hsl(var(--primary) / .4); transition: width .4s cubic-bezier(.22, .61, .36, 1); }
 .proj-name { position: relative; z-index: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .proj-meta { position: relative; z-index: 1; flex-shrink: 0; }
 .proj-empty { padding: 8px 2px; }
+
+/* 窄屏：双栏收成单栏。阈值 1200 是量出来的——再窄 50px，「会话/输入」列就会换行、
+   行高从 36px 涨到 57px；收到单栏后表格反而更宽松 */
+@media (max-width: 1200px) {
+  .usage-body { grid-template-columns: minmax(0, 1fr); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .src-card, .bar { animation: none !important; transform: none !important; }
