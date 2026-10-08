@@ -17,3 +17,8 @@ packages/ui/vite.config.mts.timestamp-*
 /walle.db-*
 /objects/
 .openbitfun/
+.workbuddy/
+.workbuddy-ai/
+.zcode/
+fixtures/
+.docs
