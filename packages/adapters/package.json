@@ -10,5 +10,6 @@
   },
   "dependencies": {
     "@walle/core": "*"
-  }
+  },
+  "license": "MIT"
 }

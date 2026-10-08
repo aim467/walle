@@ -1,3 +1,0 @@
-# USER
-
-fixture user profile

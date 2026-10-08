@@ -1,4 +1,0 @@
-{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Aug 5, 2026, 10:36 PM (UTC+8)</timestamp>\n<user_query>\n帮我检查语义检索的阈值配置\n</user_query>"}]}}
-{"role":"assistant","message":{"content":[{"type":"text","text":"先读取配置文件。"},{"type":"tool_use","name":"Read","input":{"path":"D:\\fixture\\proj\\config.json"}}]}}
-{"role":"assistant","message":{"content":[{"type":"text","text":"语义检索阈值为 0.7。"}]}}
-{"type":"turn_ended","status":"success"}

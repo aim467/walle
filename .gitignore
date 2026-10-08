@@ -20,5 +20,5 @@ packages/ui/vite.config.mts.timestamp-*
 .workbuddy/
 .workbuddy-ai/
 .zcode/
-fixtures/
-.docs
+fixtures/*
+.docs/*

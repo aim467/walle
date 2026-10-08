@@ -28,6 +28,7 @@ Walle currently supports **8 data sources**: ZCode, Codex CLI, Cursor, opencode,
 - [Privacy & Security](#privacy--security)
 - [Project Structure](#project-structure)
 - [Development](#development)
+- [License](#license)
 
 ---
 
@@ -225,3 +226,9 @@ npm run verify  # Phase 0 format verification scripts (read-only on the real ~/.
 - **Versioning**: semantic versioning (during 0.x, the stage number is the major version).
 
 ---
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright (c) 2026 aim467.
+
+You are free to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, provided that the copyright notice and this permission notice are retained in all copies or substantial portions. The software is provided "as is", without warranty of any kind.
