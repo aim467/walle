@@ -149,7 +149,7 @@ onMounted(load);
           <img class="card-logo" :src="toolLogos[s.tool]" :alt="s.tool">
           <div class="head-id">
             <strong :title="s.displayName">{{ s.displayName }}</strong>
-            <UiBadge>{{ s.tool }}</UiBadge>
+            <!-- <UiBadge>{{ s.tool }}</UiBadge> -->
           </div>
           <span class="stat-num">{{ s.total.toLocaleString('en-US') }}</span>
         </div>
