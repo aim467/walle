@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -101,11 +102,174 @@ function collectDirEntries(dir: string, base: string, out: ZipEntry[]): void {
   }
 }
 
+// ---------- 本地文件夹选择（设置页「浏览…」） ----------
+
+interface PickResult { ok: boolean; path?: string; cancelled?: boolean; error?: string; notFound?: boolean }
+
+/** 选择器等待上限（用户长时间不操作则强杀）。测试可用 WALLE_PICK_TIMEOUT_MS 调短。 */
+const PICK_TIMEOUT_MS = Number(process.env.WALLE_PICK_TIMEOUT_MS) || 10 * 60 * 1000;
+
+/** 去掉系统选择器返回值末尾的分隔符（macOS 的 `choose folder` 会带尾斜杠），保留盘符根 `C:\` */
+function trimTrailingSep(p: string): string {
+  const t = p.trim().replace(/[\\/]+$/, '');
+  if (!t) return p.trim();
+  return /^[A-Za-z]:$/.test(t) ? `${t}\\` : t;
+}
+
+interface PickerCmd {
+  cmd: string;
+  args: string[];
+  /** 退出码是否为「用户取消」——各平台语义不同，需区分取消与脚本报错（后者要让前端回退） */
+  isCancel(code: number, stderr: string): boolean;
+}
+
+/** 启动系统选择器并等待用户操作。取消/超时/异常都归一为结果对象，不抛错。
+ *  对话框可能长时间停留（用户去喝咖啡了），超时后强杀子进程。 */
+function runPicker(spec: PickerCmd): Promise<PickResult> {
+  return new Promise((resolve) => {
+    const child = spawn(spec.cmd, spec.args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let out = '';
+    let err = '';
+    let settled = false;
+    const finish = (r: PickResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish({ ok: false, error: `等待选择超时（${Math.round(PICK_TIMEOUT_MS / 1000)}s）` });
+    }, PICK_TIMEOUT_MS);
+    child.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
+    child.stderr?.on('data', (d: Buffer) => { err += d.toString(); });
+    child.on('error', (e: NodeJS.ErrnoException) => {
+      finish(e.code === 'ENOENT' ? { ok: false, notFound: true, error: `未找到 ${spec.cmd}` } : { ok: false, error: e.message });
+    });
+    child.on('close', (code) => {
+      const picked = out.trim();
+      if (code === 0 && picked) finish({ ok: true, path: trimTrailingSep(picked) });
+      else if (code === 0) finish({ ok: false, error: '选择器没有返回路径' });
+      else if (spec.isCancel(code ?? -1, err)) finish({ ok: false, cancelled: true });
+      else finish({ ok: false, error: err.trim() || `选择器异常退出（${code}）` });
+    });
+  });
+}
+
+/** 打开系统原生「选择文件夹」对话框，返回绝对路径。
+ *  Windows: PowerShell + FolderBrowserDialog（须 STA；用最小化 TopMost 宿主窗口避免对话框被压到后台）
+ *  macOS:   osascript `choose folder`
+ *  Linux:   zenity / kdialog（无桌面环境或未安装时 notFound，由前端回退内置目录浏览器） */
+async function pickFolderNative(prompt: string, defaultPath: string | null): Promise<PickResult> {
+  // PowerShell 单引号字符串：内部单引号翻倍转义；AppleScript 双引号字符串：反斜杠与双引号转义
+  const psq = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+  const asq = (s: string): string => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  // 默认位置只在真实存在时传入：FolderBrowserDialog 收到非法路径会直接抛异常
+  const startAt = defaultPath && fs.existsSync(defaultPath) ? defaultPath : null;
+
+  const candidates: PickerCmd[] = [];
+  if (process.platform === 'win32') {
+    // 显式区分三种退出：0=已选、2=用户取消、3=脚本异常（异常不能当成取消，否则前端不会回退）
+    const script = [
+      '$ErrorActionPreference = ' + "'Stop'",
+      // stdout 走 UTF-8：PowerShell 5.1 默认按 OEM 代码页输出（中文 Windows 为 GBK），含中文的路径会乱码
+      '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
+      `$d.Description = ${psq(prompt)}`,
+      '$d.ShowNewFolderButton = $true',
+      startAt ? `$d.SelectedPath = ${psq(startAt)}` : null,
+      '$o = New-Object System.Windows.Forms.Form',
+      '$o.TopMost = $true',
+      '$o.ShowInTaskbar = $false',
+      "$o.WindowState = 'Minimized'",
+      '$r = $null',
+      'try { $o.Show(); $r = $d.ShowDialog($o); $o.Close() } catch { [Console]::Error.Write($_.Exception.Message); exit 3 }',
+      "if ($r -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath } else { exit 2 }",
+    ].filter((x): x is string => x !== null).join('; ');
+    const args = ['-NoProfile', '-STA', '-Command', script];
+    const isCancel = (code: number): boolean => code === 2;
+    const sysRoot = process.env.SystemRoot ?? 'C:\\Windows';
+    candidates.push(
+      { cmd: path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), args, isCancel },
+      { cmd: 'powershell', args, isCancel },
+      { cmd: 'pwsh', args, isCancel },
+    );
+  } else if (process.platform === 'darwin') {
+    const loc = startAt ? ` default location POSIX file ${asq(startAt)}` : '';
+    // osascript 取消时退出码 1 且 stderr 写 "User canceled. (-128)"——不能按 stderr 判错
+    candidates.push({
+      cmd: 'osascript',
+      args: ['-e', `POSIX path of (choose folder with prompt ${asq(prompt)}${loc})`],
+      isCancel: (code) => code === 1 || code === 2,
+    });
+  } else {
+    const base = ['--file-selection', '--directory', `--title=${prompt}`];
+    if (startAt) base.push(`--filename=${startAt.endsWith(path.sep) ? startAt : startAt + path.sep}`);
+    // zenity/kdialog 取消退出码 1 且无 stderr；有 stderr（如 cannot open display）才算失败
+    const isCancel = (code: number, err: string): boolean => code === 2 || (code === 1 && !err.trim());
+    candidates.push({ cmd: 'zenity', args: base, isCancel });
+    candidates.push({ cmd: 'kdialog', args: ['--getexistingdirectory', startAt ?? os.homedir()], isCancel });
+  }
+
+  let last: PickResult = { ok: false, error: '当前平台不支持系统选择器' };
+  for (const c of candidates) {
+    const r = await runPicker(c);
+    if (r.ok || r.cancelled || !r.notFound) return r;
+    last = r; // 该命令不存在（如 Linux 无 zenity）→ 试下一个
+  }
+  return last;
+}
+
+/** 内置目录浏览器数据源：只列子目录（不读文件内容），供系统选择器不可用时兜底。
+ *  path 为空 → 返回平台根（Windows 盘符 / Unix 根目录与家目录）。 */
+function listDirs(raw: string): { ok: boolean; path?: string; parent?: string | null; entries?: { name: string; path: string; hidden: boolean }[]; error?: string } {
+  if (!raw) {
+    const roots: { name: string; path: string; hidden: boolean }[] = [];
+    if (process.platform === 'win32') {
+      for (let c = 65; c <= 90; c++) {
+        const letter = String.fromCharCode(c);
+        const p = `${letter}:\\`;
+        try { if (fs.existsSync(p)) roots.push({ name: p, path: p, hidden: false }); } catch { /* 无此盘符 */ }
+      }
+    } else {
+      roots.push({ name: '/', path: '/', hidden: false }, { name: os.homedir(), path: os.homedir(), hidden: false });
+    }
+    return { ok: true, path: '', parent: null, entries: roots };
+  }
+  const abs = path.resolve(raw);
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(abs);
+  } catch {
+    return { ok: false, error: `目录不存在或不可访问：${abs}` };
+  }
+  if (!st.isDirectory()) return { ok: false, error: `不是目录：${abs}` };
+  let names: fs.Dirent[];
+  try {
+    names = fs.readdirSync(abs, { withFileTypes: true });
+  } catch (e) {
+    return { ok: false, error: `无法读取目录：${(e as Error).message}` };
+  }
+  const entries: { name: string; path: string; hidden: boolean }[] = [];
+  for (const e of names) {
+    if (entries.length >= 1000) break;
+    if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+    const p = path.join(abs, e.name);
+    try { if (!fs.statSync(p).isDirectory()) continue; } catch { continue; } // 悬空链接/权限不足跳过
+    entries.push({ name: e.name, path: p, hidden: e.name.startsWith('.') });
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  const parent = path.dirname(abs) === abs ? null : path.dirname(abs);
+  return { ok: true, path: abs, parent, entries };
+}
+
 export async function cmdServe(rest: string[]): Promise<void> {
   const { values } = parseArgs({ args: rest, options: { port: { type: 'string', default: '4173' } } });
   const port = Number(values.port) || 4173;
   const { store, cas } = openStores();
   let scanning = false; // 防止扫描请求并发重入（扫描与 serve 共用同一 store 连接）
+  let picking = false; // 系统选择器同一时刻只允许一个（避免弹窗风暴）
 
   /** 解析 skill 资产所在的技能目录（适配器 resolve + source 根），目录不存在返回 null */
   function skillDirOf(assetId: number): { dir: string; name: string } | null {
@@ -318,6 +482,36 @@ export async function cmdServe(rest: string[]): Promise<void> {
         });
         return;
       }
+      if (url.pathname === '/api/fs/dirs') {
+        // 内置目录浏览器（设置页「浏览…」的兜底）：只列子目录，path 为空返回平台根
+        json(res, listDirs(url.searchParams.get('path') ?? ''));
+        return;
+      }
+      if (url.pathname === '/api/pick-folder' && req.method === 'POST') {
+        // 打开系统原生「选择文件夹」对话框，返回绝对路径。系统选择器不可用时前端回退 /api/fs/dirs
+        if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
+        if (picking) { json(res, { ok: false, error: '已有一个选择窗口在等待操作' }); return; }
+        let body = '';
+        req.on('data', (c) => {
+          body += c;
+          if (body.length > 8 * 1024) req.destroy();
+        });
+        req.on('end', () => {
+          void (async () => {
+            try {
+              const { prompt, defaultPath } = JSON.parse(body || '{}') as { prompt?: string; defaultPath?: string | null };
+              picking = true;
+              const r = await pickFolderNative(String(prompt ?? '选择文件夹'), defaultPath ? String(defaultPath) : null);
+              json(res, r);
+            } catch (err) {
+              json(res, { ok: false, error: (err as Error).message });
+            } finally {
+              picking = false;
+            }
+          })();
+        });
+        return;
+      }
       if (url.pathname === '/api/scan' && req.method === 'POST') {
         // 触发重新扫描（Web UI 设置改路径 / 总览刷新数据）；?source=<tool> 只扫单个工具
         if (!sameOrigin(req)) { json(res, { ok: false, error: '跨源请求已拒绝' }); return; }
@@ -381,7 +575,7 @@ export async function cmdServe(rest: string[]): Promise<void> {
         });
         req.on('end', () => {
           try {
-            const input = JSON.parse(body) as { baseUrl?: string; apiKey?: string; model?: string };
+            const input = JSON.parse(body) as { baseUrl?: string; apiKey?: string; model?: string; temperature?: number | string; maxTokens?: number | string; topP?: number | string };
             const v = validateLlmInput(input);
             if ('error' in v) { json(res, { ok: false, error: v.error }); return; }
             const cfg = readWalleConfig();

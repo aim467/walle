@@ -23,6 +23,30 @@ test('validateLlmInput：地址规整与必填校验', () => {
   assert.ok('error' in validateLlmInput({ baseUrl: 'http://x' }), '缺 model 报错');
 });
 
+test('validateLlmInput：生成参数（temperature / maxTokens / topP）校验与规整', () => {
+  // 数字或数字字符串均可，转成 number 写入
+  const ok = validateLlmInput({ baseUrl: 'http://x', model: 'm', temperature: '0.7', maxTokens: '2048', topP: 0.9 });
+  assert.ok(!('error' in ok));
+  assert.equal(ok.cfg.temperature, 0.7);
+  assert.equal(ok.cfg.maxTokens, 2048);
+  assert.equal(ok.cfg.topP, 0.9);
+
+  // 留空 → undefined（不写配置，回退默认）
+  const blank = validateLlmInput({ baseUrl: 'http://x', model: 'm', temperature: '', maxTokens: '', topP: '' });
+  assert.ok(!('error' in blank));
+  assert.equal(blank.cfg.temperature, undefined);
+  assert.equal(blank.cfg.maxTokens, undefined);
+  assert.equal(blank.cfg.topP, undefined);
+
+  // 越界 / 非法值
+  assert.ok('error' in validateLlmInput({ baseUrl: 'http://x', model: 'm', temperature: 3 }), 'temperature > 2 拒绝');
+  assert.ok('error' in validateLlmInput({ baseUrl: 'http://x', model: 'm', temperature: 'abc' }), 'temperature 非数字拒绝');
+  assert.ok('error' in validateLlmInput({ baseUrl: 'http://x', model: 'm', maxTokens: 0 }), 'maxTokens 必须为正');
+  assert.ok('error' in validateLlmInput({ baseUrl: 'http://x', model: 'm', maxTokens: 1.5 }), 'maxTokens 必须为整数');
+  assert.ok('error' in validateLlmInput({ baseUrl: 'http://x', model: 'm', topP: 0 }), 'topP 必须 > 0');
+  assert.ok('error' in validateLlmInput({ baseUrl: 'http://x', model: 'm', topP: 1.5 }), 'topP 必须 <= 1');
+});
+
 test('maskApiKey：脱敏不回显完整 key', () => {
   assert.equal(maskApiKey('sk-abcdef1234567890'), 'sk-a****7890');
   assert.equal(maskApiKey('short'), '****');

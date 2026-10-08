@@ -13,7 +13,16 @@ export interface LlmStatus {
   model: string;
   /** 脱敏后的 key（如 sk-ab****ef）；未配置/无 key 返回空串 */
   apiKeyMasked: string;
+  /** 采样温度（始终有值，未配置时为默认 0.3） */
+  temperature: number;
+  /** 单次回复最大 token；未设置时为 null（交服务端默认） */
+  maxTokens: number | null;
+  /** 核采样 top_p；未设置时为 null（不传） */
+  topP: number | null;
 }
+
+/** 未显式配置时的默认采样温度（提炼/总结偏稳定） */
+export const DEFAULT_TEMPERATURE = 0.3;
 
 /** api key 脱敏：保留前 4 后 4（过短全遮） */
 export function maskApiKey(key: string): string {
@@ -31,18 +40,45 @@ export function llmStatus(): LlmStatus {
     baseUrl,
     model,
     apiKeyMasked: maskApiKey((cfg.apiKey ?? '').trim()),
+    temperature: typeof cfg.temperature === 'number' ? cfg.temperature : DEFAULT_TEMPERATURE,
+    maxTokens: typeof cfg.maxTokens === 'number' && cfg.maxTokens > 0 ? cfg.maxTokens : null,
+    topP: typeof cfg.topP === 'number' ? cfg.topP : null,
   };
 }
 
+/** 空串 / undefined / null → undefined（表示「未设置，用默认」）；否则转数字 */
+function optionalNumber(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  return typeof v === 'number' ? v : Number(String(v).trim());
+}
+
 /** 校验并规整用户提交的大模型配置；返回错误信息（null=通过） */
-export function validateLlmInput(input: { baseUrl?: unknown; apiKey?: unknown; model?: unknown }): { error: string } | { cfg: LlmConfig } {
+export function validateLlmInput(input: {
+  baseUrl?: unknown; apiKey?: unknown; model?: unknown;
+  temperature?: unknown; maxTokens?: unknown; topP?: unknown;
+}): { error: string } | { cfg: LlmConfig } {
   const baseUrl = String(input.baseUrl ?? '').trim().replace(/\/+$/, '');
   const apiKey = String(input.apiKey ?? '').trim();
   const model = String(input.model ?? '').trim();
   if (!baseUrl) return { error: 'baseUrl 不能为空' };
   if (!/^https?:\/\//.test(baseUrl)) return { error: 'baseUrl 必须以 http(s):// 开头' };
   if (!model) return { error: 'model 不能为空' };
-  return { cfg: { baseUrl, apiKey, model } };
+
+  // 可选生成参数：留空即不写（回退默认 / 不传）
+  const temperature = optionalNumber(input.temperature);
+  if (temperature !== undefined && (Number.isNaN(temperature) || temperature < 0 || temperature > 2)) {
+    return { error: 'temperature 需为 0-2 之间的数字' };
+  }
+  const maxTokens = optionalNumber(input.maxTokens);
+  if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) {
+    return { error: 'maxTokens 需为正整数' };
+  }
+  const topP = optionalNumber(input.topP);
+  if (topP !== undefined && (Number.isNaN(topP) || topP <= 0 || topP > 1)) {
+    return { error: 'topP 需为 0-1 之间的数字' };
+  }
+
+  return { cfg: { baseUrl, apiKey, model, temperature, maxTokens, topP } };
 }
 
 interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
@@ -52,10 +88,14 @@ const CHAT_TIMEOUT_MS = 120_000;
 const PER_MSG_LIMIT = 6_000;
 const TOTAL_LIMIT = 32_000;
 
-/** 调用 OpenAI 兼容 chat completions；非 2xx 抛出带响应摘要的错误 */
-export async function chatCompletion(cfg: LlmConfig, messages: ChatMessage[], opts: { temperature?: number; maxTokens?: number } = {}): Promise<string> {
+/** 调用 OpenAI 兼容 chat completions；非 2xx 抛出带响应摘要的错误。
+ *  生成参数优先级：显式 opts > config.json 的 llm 配置 > 内置默认 */
+export async function chatCompletion(cfg: LlmConfig, messages: ChatMessage[], opts: { temperature?: number; maxTokens?: number; topP?: number } = {}): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), CHAT_TIMEOUT_MS);
+  const temperature = cfg.temperature ?? opts.temperature ?? DEFAULT_TEMPERATURE;
+  const maxTokens = cfg.maxTokens ?? opts.maxTokens;
+  const topP = cfg.topP ?? opts.topP;
   try {
     const resp = await fetch(cfg.baseUrl!.replace(/\/+$/, '') + '/chat/completions', {
       method: 'POST',
@@ -66,8 +106,9 @@ export async function chatCompletion(cfg: LlmConfig, messages: ChatMessage[], op
       body: JSON.stringify({
         model: cfg.model,
         messages,
-        temperature: opts.temperature ?? 0.3,
-        ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+        temperature,
+        ...(topP ? { top_p: topP } : {}),
+        ...(maxTokens ? { max_tokens: maxTokens } : {}),
       }),
       signal: ctrl.signal,
     });

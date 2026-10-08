@@ -142,7 +142,7 @@ After `walle serve`, open `http://127.0.0.1:4173`. Seven views:
 | **Skills** | Cross-tool skill overview, link tracking (origin / linked copies / tool coverage / project-local), full file browsing with Markdown preview, open locally, and import from SkillHub / GitHub / zip into any tool |
 | **Memories** | Aggregates root × project memories across tools, with same-name / same-content detection |
 | **Knowledge** | Knowledge cards and summaries distilled from sessions; tag filtering, Markdown reading, create / edit / delete, and source-session traceability |
-| **Settings** | Custom data-source paths, the write-back switch, LLM (OpenAI-compatible) config, and light/dark theme |
+| **Settings** | Custom data-source paths (native folder picker / built-in directory browser), the write-back switch, LLM (OpenAI-compatible) config, and light/dark theme |
 
 ---
 

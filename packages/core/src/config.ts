@@ -22,6 +22,12 @@ export interface LlmConfig {
   apiKey?: string;
   /** 模型名，如 qwen3:8b / deepseek-chat */
   model?: string;
+  /** 采样温度 0-2：越低越确定、越高越发散。未设置时按 0.3（提炼/总结偏稳定） */
+  temperature?: number;
+  /** 单次回复最大 token 数（max_tokens）。未设置则交服务端默认 */
+  maxTokens?: number;
+  /** 核采样 top_p 0-1。与 temperature 一般二选一调优；未设置则不传 */
+  topP?: number;
 }
 
 /** 读取某工具路径覆盖（未配置返回 undefined） */

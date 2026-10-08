@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import UiButton from '../components/ui/Button.vue';
 import UiInput from '../components/ui/Input.vue';
 import UiBadge from '../components/ui/Badge.vue';
+import UiDialog from '../components/ui/Dialog.vue';
 import { toast } from '../components/ui/toast';import openaiLogo from '../assets/logos/openai.png';
 import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
@@ -37,6 +38,7 @@ const edit = ref<Record<string, string>>({});
 const saving = ref(false);
 const needsRescan = ref(false); // 保存过路径修改后提示重扫
 const rescanning = ref(false);
+const savedTools = ref<string[]>([]); // 本次保存改动了哪些工具（重扫只扫这些，即「导入」范围）
 
 
 const grouped = computed(() => {
@@ -62,6 +64,10 @@ onMounted(async () => {
 
 async function save() {
   if (!data.value) return;
+  const before = data.value.toolPaths;
+  // 本次改动涉及的「工具」——保存后重扫（导入）只针对它们，不再全库扫一遍
+  const changedKeys = Object.keys(edit.value).filter((k) => (edit.value[k] || '') !== (before[k] || ''));
+  const tools = [...new Set(changedKeys.map((k) => data.value!.roots.find((r) => r.key === k)?.tool).filter((t): t is string => !!t))];
   saving.value = true;
   try {
     const res = await fetch('/api/settings', {
@@ -73,6 +79,7 @@ async function save() {
     if (d.ok) {
       toast.success('已保存');
       needsRescan.value = true;
+      savedTools.value = tools;
       data.value = await (await fetch('/api/settings')).json();
       edit.value = { ...data.value.toolPaths };
     } else {
@@ -85,15 +92,107 @@ async function save() {
 
 function resetOne(key: string) { edit.value[key] = ''; }
 
+// ---------- 本地文件夹选择（「浏览…」） ----------
+const picking = ref<string | null>(null); // 正在等待系统选择器的字段 key
+const pickedPath = ref<Record<string, string>>({}); // 本会话手动选过的路径（用于即时修正「目录存在」徽标）
+const browserOpen = ref(false);
+const browserField = ref<{ key: string; title: string } | null>(null);
+const browserPath = ref('');
+const browserParent = ref<string | null>(null);
+const browserEntries = ref<{ name: string; path: string; hidden: boolean }[]>([]);
+const browserLoading = ref(false);
+
+/** 目录是否存在：手动选过的路径直接为真（选择器只会返回存在的目录），否则用服务端扫描时的判定 */
+function existsOf(r: RootDef): boolean {
+  const p = edit.value[r.key];
+  return !!(p && pickedPath.value[r.key] === p) || r.exists;
+}
+
+/** 打开本地文件夹：优先系统原生选择器，不可用时回退内置目录浏览器 */
+async function openPicker(r: RootDef) {
+  if (picking.value) return;
+  const current = edit.value[r.key] || r.effectiveRoot || r.defaultRoot;
+  picking.value = r.key;
+  try {
+    const d = await (await fetch('/api/pick-folder', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: `选择「${r.label}」目录`, defaultPath: current }),
+    })).json();
+    if (d.ok) { applyPicked(r.key, String(d.path)); return; }
+    if (d.cancelled) return; // 用户取消：静默
+    toast.warning(d.error ? `系统选择器不可用，改用内置浏览（${d.error}）` : '系统选择器不可用，改用内置浏览');
+    await openBrowser(r);
+  } finally {
+    picking.value = null;
+  }
+}
+
+function applyPicked(key: string, p: string) {
+  edit.value[key] = p;
+  pickedPath.value[key] = p;
+  toast.success(`已选择：${p}（点「保存修改」后生效）`);
+}
+
+async function openBrowser(r: RootDef) {
+  browserField.value = { key: r.key, title: r.label };
+  browserOpen.value = true;
+  await loadDirs(edit.value[r.key] || r.effectiveRoot || r.defaultRoot);
+}
+
+async function loadDirs(p: string) {
+  browserLoading.value = true;
+  try {
+    const d = await (await fetch(`/api/fs/dirs?path=${encodeURIComponent(p)}`)).json();
+    if (!d.ok) { toast.error(d.error ?? '无法读取目录'); return; }
+    browserPath.value = d.path;
+    browserParent.value = d.parent ?? null;
+    browserEntries.value = d.entries ?? [];
+  } finally {
+    browserLoading.value = false;
+  }
+}
+
+function confirmBrowser() {
+  if (!browserField.value || !browserPath.value) return;
+  applyPicked(browserField.value.key, browserPath.value);
+  browserOpen.value = false;
+}
+
+
 // ---------- 大模型配置（OpenAI 兼容接口） ----------
-interface LlmStatus { configured: boolean; baseUrl: string; model: string; apiKeyMasked: string }
+interface LlmStatus {
+  configured: boolean; baseUrl: string; model: string; apiKeyMasked: string;
+  temperature: number; maxTokens: number | null; topP: number | null;
+}
+interface LlmEdit {
+  baseUrl: string; apiKey: string; model: string;
+  temperature: string; maxTokens: string; topP: string;
+}
 const llm = ref<LlmStatus | null>(null);
-const llmEdit = ref<{ baseUrl: string; apiKey: string; model: string }>({ baseUrl: '', apiKey: '', model: '' });
+const llmEdit = ref<LlmEdit>({ baseUrl: '', apiKey: '', model: '', temperature: '', maxTokens: '', topP: '' });
 const llmSaving = ref(false);
+
+/** 用服务端状态回填编辑态（apiKey 永远留空，避免回显/误抹） */
+function fillLlmEdit(s: LlmStatus) {
+  llmEdit.value = {
+    baseUrl: s.baseUrl,
+    apiKey: '',
+    model: s.model,
+    temperature: s.temperature != null ? String(s.temperature) : '',
+    maxTokens: s.maxTokens != null ? String(s.maxTokens) : '',
+    topP: s.topP != null ? String(s.topP) : '',
+  };
+}
+
+/** 空串 → undefined（留空即用默认 / 不传）；否则转数字 */
+function numOrUndef(s: string): number | undefined {
+  return s.trim() === '' ? undefined : Number(s.trim());
+}
 
 async function loadLlm() {
   llm.value = await (await fetch('/api/llm')).json();
-  llmEdit.value = { baseUrl: llm.value.baseUrl, apiKey: '', model: llm.value.model };
+  fillLlmEdit(llm.value!);
 }
 
 async function saveLlm() {
@@ -102,11 +201,18 @@ async function saveLlm() {
     const d = await (await fetch('/api/llm', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(llmEdit.value),
+      body: JSON.stringify({
+        baseUrl: llmEdit.value.baseUrl,
+        apiKey: llmEdit.value.apiKey,
+        model: llmEdit.value.model,
+        temperature: numOrUndef(llmEdit.value.temperature),
+        maxTokens: numOrUndef(llmEdit.value.maxTokens),
+        topP: numOrUndef(llmEdit.value.topP),
+      }),
     })).json();
     if (d.ok) {
       llm.value = d.status;
-      llmEdit.value = { baseUrl: d.status.baseUrl, apiKey: '', model: d.status.model };
+      fillLlmEdit(d.status);
       toast.success('大模型配置已保存，提炼可用 AI 生成');
     } else {
       toast.error(d.error ?? '保存失败');
@@ -123,15 +229,23 @@ async function rescanNow() {
   rescanning.value = true;
 
   try {
-    const d = await (await fetch('/api/scan', { method: 'POST' })).json();
-    if (!d.ok) {
-      toast.error(d.error ?? '扫描失败');
-      return;
+    // 刚改过路径的工具只扫自己（导入范围）；无改动记录时全量扫
+    const targets: (string | null)[] = savedTools.value.length ? savedTools.value : [null];
+    const lines: string[] = [];
+    for (const t of targets) {
+      const d = await (await fetch(`/api/scan${t ? `?source=${encodeURIComponent(t)}` : ''}`, { method: 'POST' })).json();
+      if (!d.ok) {
+        toast.error(d.error ?? '扫描失败');
+        return;
+      }
+      for (const r of d.results as ScanResult[]) {
+        if (!r.scanned) continue;
+        lines.push(`${r.displayName}：资产 ${r.total}${r.new ? ` · 新增 ${r.new}` : ''}${r.updated ? ` · 更新 ${r.updated}` : ''}`);
+      }
     }
-    const parts = d.results.filter((r: ScanResult) => r.scanned)
-      .map((r: ScanResult) => `${r.displayName}：资产 ${r.total}${r.new ? ` · 新增 ${r.new}` : ''}${r.updated ? ` · 更新 ${r.updated}` : ''}`);
-    toast.success(parts.length ? parts.join('；') : '未发现任何 AI 工具数据源目录');
+    toast.success(lines.length ? lines.join('；') : '未发现任何 AI 工具数据源目录');
     needsRescan.value = false;
+    savedTools.value = [];
   } finally {
     rescanning.value = false;
   }
@@ -146,8 +260,8 @@ async function rescanNow() {
         <div class="dim small">自定义各 AI 工具的配置路径 · 保存到 <span class="mono">~/.walle/config.json</span> · 修改后需重新执行 <span class="mono">walle scan</span> 生效</div>
       </div>
       <div class="head-actions">
-        <UiButton v-if="needsRescan" variant="secondary" :loading="rescanning" class="!text-amber-600 dark:!text-amber-400" @click="rescanNow">
-          立即重新扫描
+        <UiButton v-if="needsRescan" variant="secondary" :loading="rescanning" class="!text-amber-600 dark:!text-amber-400" title="按已保存的路径重新扫描并入库" @click="rescanNow">
+          立即导入
         </UiButton>
         <UiButton :loading="saving" :disabled="!dirty" @click="save">保存修改</UiButton>
       </div>
@@ -163,24 +277,40 @@ async function rescanNow() {
             </span>
             <strong>{{ toolLabel[g.tool] ?? g.tool }}</strong>
           </div>
-          <UiBadge>{{ g.tool }}</UiBadge>
+          <!-- <UiBadge>{{ g.tool }}</UiBadge> -->
         </header>
 
         <div class="tile-body">
           <div v-for="r in g.roots" :key="r.key" class="field">
             <div class="field-label">
               <span>{{ r.label }}</span>
-              <UiBadge :type="r.exists ? 'success' : 'warning'">
-                {{ r.exists ? '目录存在' : '目录不存在' }}
+              <UiBadge :type="existsOf(r) ? 'success' : 'warning'">
+                {{ existsOf(r) ? '目录存在' : '目录不存在' }}
               </UiBadge>
               <UiBadge v-if="r.envRedirect && !r.override">环境变量重定向</UiBadge>
             </div>
-            <UiInput
-              v-model:value="edit[r.key]"
-              :placeholder="r.defaultRoot"
-              class="field-input"
-              @update:value="(v: string) => { if (!v) resetOne(r.key) }"
-            />
+            <div class="path-row">
+              <div class="path-input">
+                <UiInput
+                  v-model:value="edit[r.key]"
+                  :placeholder="r.defaultRoot"
+                  class="field-input"
+                  @update:value="(v: string) => { if (!v) resetOne(r.key) }"
+                />
+              </div>
+              <UiButton
+                variant="secondary"
+                :loading="picking === r.key"
+                :disabled="picking !== null && picking !== r.key"
+                title="打开本地文件夹选择器"
+                @click="openPicker(r)"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                  <path d="M3 7a2 2 0 012-2h3.6l1.6 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                </svg>
+                浏览…
+              </UiButton>
+            </div>
             <div class="dim small field-meta">默认：{{ r.defaultRoot }}</div>
             <div v-if="r.effectiveRoot !== r.defaultRoot" class="dim small field-meta">
               当前生效：{{ r.effectiveRoot }}
@@ -203,6 +333,7 @@ async function rescanNow() {
       </header>
 
       <div v-if="llm" class="tile-body">
+        <div class="llm-section-title">连接</div>
         <div class="llm-fields">
           <div class="field">
             <div class="field-label"><span>Base URL</span></div>
@@ -222,6 +353,26 @@ async function rescanNow() {
             <div class="dim small field-meta">如 qwen3:8b（Ollama）/ deepseek-chat / gpt-4o-mini</div>
           </div>
         </div>
+
+        <div class="llm-section-title">生成参数<span class="dim small"> · 留空则用默认值</span></div>
+        <div class="llm-fields">
+          <div class="field">
+            <div class="field-label"><span>温度 temperature</span></div>
+            <UiInput v-model:value="llmEdit.temperature" placeholder="0.3" class="field-input" />
+            <div class="dim small field-meta">0-2，越低越稳定确定。默认 0.3（提炼/总结推荐 0-0.5）</div>
+          </div>
+          <div class="field">
+            <div class="field-label"><span>最大 Token max_tokens</span></div>
+            <UiInput v-model:value="llmEdit.maxTokens" placeholder="留空不限" class="field-input" />
+            <div class="dim small field-meta">单次回复的 token 上限（正整数）；留空交服务端默认</div>
+          </div>
+          <div class="field">
+            <div class="field-label"><span>核采样 top_p</span></div>
+            <UiInput v-model:value="llmEdit.topP" placeholder="留空不设置" class="field-input" />
+            <div class="dim small field-meta">0-1，与温度二选一调优即可；留空则不传该参数</div>
+          </div>
+        </div>
+
         <div class="llm-act">
           <UiButton :loading="llmSaving" :disabled="!llmEdit.baseUrl.trim() || !llmEdit.model.trim()" @click="saveLlm">保存大模型配置</UiButton>
         </div>
@@ -229,8 +380,39 @@ async function rescanNow() {
     </section>
 
     <div v-if="data" class="dim small foot-hint">
-      清空输入框即恢复默认路径。路径不存在的工具在扫描时会被跳过（与未安装一致）。修改路径保存后需重新扫描才会生效。
+      点「浏览…」可直接在本地文件夹选择器中选目录（系统选择器不可用时自动回退内置浏览）。清空输入框即恢复默认路径。路径不存在的工具在扫描时会被跳过（与未安装一致）。修改路径保存后需重新扫描才会生效。
     </div>
+
+    <!-- 内置目录浏览器（系统选择器不可用时的兜底） -->
+    <UiDialog v-model:open="browserOpen" :title="`选择文件夹${browserField ? ` · ${browserField.title}` : ''}`" width="620px">
+      <div class="browser">
+        <div class="browser-bar">
+          <UiButton variant="outline" size="xs" :disabled="!browserParent || browserLoading" @click="loadDirs(browserParent!)">↑ 上级</UiButton>
+          <UiButton variant="outline" size="xs" :disabled="browserLoading" @click="loadDirs('')">⌂ 根目录</UiButton>
+          <span class="browser-path mono" :title="browserPath">{{ browserPath || '此电脑' }}</span>
+        </div>
+        <div class="browser-list">
+          <button
+            v-for="e in browserEntries"
+            :key="e.path"
+            type="button"
+            class="browser-item"
+            :class="{ 'is-hidden': e.hidden }"
+            @click="loadDirs(e.path)"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+              <path d="M3 7a2 2 0 012-2h3.6l1.6 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+            </svg>
+            <span class="browser-name">{{ e.name }}</span>
+          </button>
+          <div v-if="!browserEntries.length && !browserLoading" class="dim small browser-empty">此目录下没有子文件夹</div>
+        </div>
+      </div>
+      <template #footer>
+        <UiButton variant="ghost" @click="browserOpen = false">取消</UiButton>
+        <UiButton :disabled="!browserPath" @click="confirmBrowser">使用此目录</UiButton>
+      </template>
+    </UiDialog>
   </div>
 </template>
 
@@ -271,12 +453,40 @@ async function rescanNow() {
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 13px; flex-wrap: wrap; }
+.path-row { display: flex; align-items: center; gap: 8px; }
+.path-input { flex: 1; min-width: 0; }
 .field-input { width: 100%; }
 .field-meta { font-size: 11.5px; line-height: 1.5; }
 :deep(.field-input) input { text-overflow: ellipsis; }
 
+/* 内置目录浏览器（兜底） */
+.browser { display: flex; flex-direction: column; gap: 8px; }
+.browser-bar { display: flex; align-items: center; gap: 8px; }
+.browser-path {
+  flex: 1; min-width: 0; font-size: 11.5px; color: hsl(var(--muted-foreground));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left;
+}
+.browser-list {
+  max-height: 46vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px;
+  padding: 4px; display: flex; flex-direction: column; gap: 1px;
+}
+.browser-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 9px; border-radius: 8px; font-size: 12.5px; color: hsl(var(--foreground));
+  transition: background-color .15s ease;
+}
+.browser-item:hover { background: hsl(var(--muted)); }
+.browser-item.is-hidden { opacity: .6; }
+.browser-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-empty { padding: 10px 9px; }
+
 /* 大模型配置：三列字段 */
 .llm-card { margin-top: 16px; overflow: hidden; }
+.llm-section-title {
+  font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  color: hsl(var(--muted-foreground)); margin-top: 2px;
+}
+.llm-section-title .small { font-weight: 400; }
 .llm-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .llm-act { padding-top: 14px; }
 
