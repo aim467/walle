@@ -311,7 +311,7 @@ onMounted(async () => {
 
 .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 16px 16px; overflow: hidden; }
 
-.list { flex: 1 1 42%; min-width: 300px; display: flex; flex-direction: column; overflow: hidden; }
+.list { flex: 1 1 30%; min-width: 300px; display: flex; flex-direction: column; overflow: hidden; }
 .list-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .lh-title { font-size: 13.5px; font-weight: 700; }
 .lh-n { font-size: 12px; color: var(--dim); }

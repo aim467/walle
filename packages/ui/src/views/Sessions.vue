@@ -901,7 +901,7 @@ onMounted(async () => {
 .anchor-nav {
   width: 190px; flex-shrink: 0; position: sticky; top: 6px;
   max-height: calc(100vh - 340px); overflow-y: auto;
-  background: rgba(255, 255, 255, .82); backdrop-filter: blur(14px);
+  background: var(--glass); backdrop-filter: blur(14px);
   border: 1px solid var(--border); border-radius: 12px; padding: 8px;
   box-shadow: var(--shadow);
 }
@@ -946,37 +946,37 @@ onMounted(async () => {
 .msg.md a:hover { text-decoration: underline; }
 .msg.md hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .msg.developer, .msg.system { background: var(--code-bg); border: 1px dashed var(--border); color: var(--dim); font-size: 12.5px; }
-.msg.tool { background: #fffbe8; border: 1px solid #f0e2ac; font-size: 12.5px; }
+.msg.tool { background: var(--tool-bg); border: 1px solid var(--tool-border); font-size: 12.5px; }
 /* 思考页签：内在独白——紫色只在此处出现 */
 .think-summary { margin-bottom: 10px; }
 .think-row { scroll-margin-top: 64px; margin-bottom: 10px; }
 .think-card {
-  background: #f9f6fd; border: 1px solid #e6dcf5; border-left: 3px solid #7d5bd0;
+  background: var(--think-bg); border: 1px solid var(--think-border); border-left: 3px solid var(--think-track);
   border-radius: 10px; padding: 9px 14px 10px; cursor: pointer;
   transition: box-shadow .15s, border-color .15s;
 }
-.think-card:hover { border-color: #cbb6ea; box-shadow: 0 1px 6px rgba(125, 91, 208, .12); }
+.think-card:hover { border-color: var(--think-border-hover); box-shadow: 0 1px 6px rgba(125, 91, 208, .12); }
 .think-head { display: flex; gap: 8px; align-items: baseline; }
 .think-idx {
   font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 11px; font-weight: 700; color: #7d5bd0; letter-spacing: .5px;
+  font-size: 11px; font-weight: 700; color: var(--think-fg); letter-spacing: .5px;
 }
-.think-title { font-size: 12.5px; font-weight: 700; color: #5b4394; }
+.think-title { font-size: 12.5px; font-weight: 700; color: var(--think-fg-strong); }
 .think-chars { margin-left: auto; font-size: 11px; }
-.think-chev { color: #7d5bd0; font-size: 11px; transition: transform .15s; }
+.think-chev { color: var(--think-fg); font-size: 11px; transition: transform .15s; }
 .think-card.open .think-chev { transform: rotate(180deg); }
 .think-body {
   margin-top: 6px; white-space: pre-wrap; word-break: break-word;
-  font-size: 12.5px; line-height: 1.65; color: #4a4550;
+  font-size: 12.5px; line-height: 1.65; color: var(--think-body);
 }
 .think-body.clamped {
   max-height: 300px; overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 99%); mask-image: linear-gradient(to bottom, #000 70%, transparent 99%);
 }
-.think-more { display: block; font-size: 11px; color: #7d5bd0; margin: 4px 0 0 16px; opacity: .8; }
-.think-nav .an-head { color: #5b4394; }
-.think-nav .an-item.on { background: rgba(125, 91, 208, .12); }
-.think-idx-dot { width: 24px; border-radius: 6px !important; background: rgba(125, 91, 208, .14); color: #7d5bd0 !important; }
+.think-more { display: block; font-size: 11px; color: var(--think-fg); margin: 4px 0 0 16px; opacity: .8; }
+.think-nav .an-head { color: var(--think-fg-strong); }
+.think-nav .an-item.on { background: var(--think-tint-on); }
+.think-idx-dot { width: 24px; border-radius: 6px !important; background: var(--think-tint); color: var(--think-fg) !important; }
 /* 概览 */
 .overview { max-width: 720px; }
 .ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }

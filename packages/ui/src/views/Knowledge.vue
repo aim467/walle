@@ -327,7 +327,7 @@ onMounted(loadAll);
 .tchip-n { font-size: 11px; opacity: .75; }
 
 .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 16px 16px; overflow: hidden; }
-.list { flex: 1 1 36%; min-width: 280px; display: flex; flex-direction: column; overflow: hidden; }
+.list { flex: 1 1 26%; min-width: 280px; display: flex; flex-direction: column; overflow: hidden; }
 .list-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; overscroll-behavior: contain; }
 .arow { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; }
 .arow:hover { background: var(--bg); }

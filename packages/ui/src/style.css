@@ -32,6 +32,18 @@
   --hover: hsl(var(--foreground) / .05);
   --shadow:0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
   --radius:14px;
+  /* —— 语义色调：思考（紫）/ 工具（琥珀），会话详情页签专用，明暗双主题 —— */
+  --think-fg:#7d5bd0;
+  --think-fg-strong:#5b4394;
+  --think-bg:#f9f6fd;
+  --think-border:#e6dcf5;
+  --think-border-hover:#cbb6ea;
+  --think-track:#7d5bd0;
+  --think-body:#4a4550;
+  --think-tint:rgba(125,91,208,.14);
+  --think-tint-on:rgba(125,91,208,.12);
+  --tool-bg:#fffbe8;
+  --tool-border:#f0e2ac;
 }
 .dark{
   --background: 240 5% 11%;       /* #19191c */
@@ -50,6 +62,18 @@
   --glass: hsl(240 5% 11% / .72);
   --hover: hsl(var(--foreground) / .07);
   --shadow:0 1px 3px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  /* 语义色调暗色版：暗底上保留紫/琥珀身份，提高对比可读性 */
+  --think-fg:#b9a3ec;
+  --think-fg-strong:#cdbcf2;
+  --think-bg:hsl(258 28% 16%);
+  --think-border:hsl(258 24% 27%);
+  --think-border-hover:hsl(258 40% 42%);
+  --think-track:#9b7ce0;
+  --think-body:#d3cde0;
+  --think-tint:rgba(155,124,224,.2);
+  --think-tint-on:rgba(155,124,224,.16);
+  --tool-bg:hsl(38 42% 15%);
+  --tool-border:hsl(38 36% 27%);
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--text)}
