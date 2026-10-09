@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { fmtTok, fmtTokExact } from '../lib/utils';
 import UiButton from '../components/ui/Button.vue';
 import UiBadge from '../components/ui/Badge.vue';
 import { toast } from '../components/ui/toast';
@@ -9,6 +10,7 @@ import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import clineLogo from '../assets/logos/cline.png';
+import claudeLogo from '../assets/logos/claude.svg';
 import agentsLogo from '../assets/logos/agents.svg';
 import walleMark from '../assets/walle-mark.svg';
 
@@ -28,8 +30,8 @@ interface ToolUsage {
 interface UsageDay { day: string; input: number | null; output: number | null; total: number | null }
 interface UsageProject { project: string; sessions: number; withUsage: number; input: number | null; output: number | null; total: number | null }
 
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: '知识库', cline: 'Cline' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark, cline: clineLogo };
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: '知识库', cline: 'Cline', claude: 'Claude Code' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark, cline: clineLogo, claude: claudeLogo };
 
 const sources = ref<SourceInfo[]>([]);
 const allowWrite = ref(false);
@@ -54,13 +56,6 @@ async function load() {
 }
 
 const usageRows = () => usage.value.filter((u) => (u.total ?? 0) > 0 || (u.input ?? 0) > 0);
-function fmtTok(n: number | null): string {
-  if (n == null) return '-';
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + ' B';
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + ' M';
-  if (n >= 1e4) return (n / 1e3).toFixed(1) + ' k';
-  return n.toLocaleString('en-US');
-}
 const usageTotal = () =>
   usage.value.reduce((acc, u) => ({
     input: (acc.input ?? 0) + (u.input ?? 0), output: (acc.output ?? 0) + (u.output ?? 0),
@@ -184,10 +179,10 @@ onMounted(load);
                 <tr v-for="u in usageRows()" :key="u.tool">
                   <td><img class="usage-logo" :src="toolLogos[u.tool]" alt=""><span>{{ toolLabel[u.tool] ?? u.tool }}</span></td>
                   <td class="num">{{ u.withUsage }}<span v-if="u.sessions > u.withUsage" class="dim"> / {{ u.sessions }}</span></td>
-                  <td class="num">{{ fmtTok(u.input) }}</td>
-                  <td class="num">{{ fmtTok(u.output) }}</td>
-                  <td class="num">{{ fmtTok(u.cacheRead) }}</td>
-                  <td class="num strong">{{ fmtTok(u.total) }}</td>
+                  <td class="num" :title="fmtTokExact(u.input) + ' tokens'">{{ fmtTok(u.input) }}</td>
+                  <td class="num" :title="fmtTokExact(u.output) + ' tokens'">{{ fmtTok(u.output) }}</td>
+                  <td class="num" :title="fmtTokExact(u.cacheRead) + ' tokens'">{{ fmtTok(u.cacheRead) }}</td>
+                  <td class="num strong" :title="fmtTokExact(u.total) + ' tokens'">{{ fmtTok(u.total) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -197,7 +192,7 @@ onMounted(load);
             <div class="dim small ub-title">近 14 天（按会话开始日，UTC）</div>
             <div class="card usage-card bars-card">
               <div class="bars">
-                <div v-for="(b, i) in dailyBars()" :key="b.day" class="bar-col" :title="b.day + ' · ' + fmtTok(b.total) + ' tokens'" :style="{ '--i': i }">
+                <div v-for="(b, i) in dailyBars()" :key="b.day" class="bar-col" :title="b.day + ' · ' + fmtTokExact(b.total) + ' tokens'" :style="{ '--i': i }">
                   <div class="bar-track">
                     <div class="bar" :class="{ empty: b.total === 0 }" :style="{ height: b.height + '%' }"></div>
                   </div>
@@ -214,7 +209,7 @@ onMounted(load);
             <div v-for="p in projRows" :key="p.project" class="proj-row" :title="p.project">
               <span class="proj-bar" :style="{ width: p.pct + '%' }"></span>
               <span class="proj-name mono">{{ projName(p.project) }}</span>
-              <span class="dim small proj-meta">{{ p.withUsage }} 会话 · {{ fmtTok(p.total) }}</span>
+              <span class="dim small proj-meta" :title="fmtTokExact(p.total) + ' tokens'">{{ p.withUsage }} 会话 · {{ fmtTok(p.total) }}</span>
             </div>
             <div v-if="!usageProjects.length" class="dim small proj-empty">暂无带项目路径的用量数据</div>
           </div>

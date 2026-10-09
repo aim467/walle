@@ -11,6 +11,7 @@ import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import agentsLogo from '../assets/logos/agents.svg';
 import clineLogo from '../assets/logos/cline.png';
+import claudeLogo from '../assets/logos/claude.svg';
 import walleMark from '../assets/walle-mark.svg';
 
 interface RootDef {
@@ -29,9 +30,9 @@ interface ScanResult {
   total: number; new: number; updated: number; unchanged: number; missing: number;
 }
 
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: 'Walle 知识库', cline: 'Cline' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark, cline: clineLogo };
-const toolOrder = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline'];
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'opencode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: 'Walle 知识库', cline: 'Cline', claude: 'Claude Code' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark, cline: clineLogo, claude: claudeLogo };
+const toolOrder = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline', 'claude'];
 
 const data = ref<SettingsData | null>(null);
 const edit = ref<Record<string, string>>({});

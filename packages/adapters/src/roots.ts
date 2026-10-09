@@ -52,6 +52,13 @@ export const TOOL_ROOT_DEFS: ToolRootDef[] = [
     default: () => path.join(os.homedir(), '.cline'),
   },
   {
+    key: 'claude',
+    tool: 'claude',
+    label: 'Claude Code 根（~/.claude）',
+    env: 'WALLE_CLAUDE',
+    default: () => path.join(os.homedir(), '.claude'),
+  },
+  {
     key: 'workbuddy-cn', tool: 'workbuddy-cn', label: '国内版根（~/.workbuddy）', env: 'WALLE_WORKBUDDY_CN',
     default: () => path.join(os.homedir(), '.workbuddy'),
   },

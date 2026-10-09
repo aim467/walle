@@ -16,6 +16,7 @@ import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import agentsLogo from '../assets/logos/agents.svg';
+import claudeLogo from '../assets/logos/claude.svg';
 import walleMark from '../assets/walle-mark.svg';
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -30,6 +31,7 @@ interface Asset {
 const toolLogos: Record<string, string> = {
   zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo,
   workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark,
+  claude: claudeLogo,
 };
 const toolName = (t: string) => (t === 'walle' ? '手动创建' : t);
 

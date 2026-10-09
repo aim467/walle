@@ -105,17 +105,22 @@ write('codex/memories/archive/2026-07.md', '# 归档\n\n- 2026-07 完成旧项�
 {
   const db = openDb('zcode/cli/db/db.sqlite');
   // zcode 真机 schema：session 表项目列名是 directory（非 path），parseFamilyDb 据此读 projectPath
+  // 用量来源（token.md）：model_usage 表按会话聚合；step-finish part 仍在但不再参与用量（回归断言其被忽略）
   db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, version TEXT, time_created TEXT);
 CREATE TABLE message (id INTEGER PRIMARY KEY, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
 CREATE TABLE part (id INTEGER PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created TEXT);
-INSERT INTO session (id, title, directory, version, time_created) VALUES ('sess_fixture1', 'fixture 会话', 'D:\\fixture\\proj', '0.16.9', '2026-09-30T10:00:00Z');
+CREATE TABLE model_usage (id TEXT, session_id TEXT, model_id TEXT, status TEXT, input_tokens INTEGER, output_tokens INTEGER, reasoning_tokens INTEGER, cache_creation_input_tokens INTEGER, cache_read_input_tokens INTEGER, provider_total_tokens INTEGER, computed_total_tokens INTEGER);
+INSERT INTO session (id, title, directory, version, time_created) VALUES ('sess_fixture1', 'fixture 会话', 'D:\\fixture\\zproj', '0.16.9', '2026-09-30T10:00:00Z');
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (1, 'sess_fixture1', '{"role":"user"}', 0, '2026-09-30T10:00:01Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (1, '1', 'sess_fixture1', '{"type":"text","text":"fixture prompt：帮我检查语义检索的阈值配置"}', 0, '2026-09-30T10:00:01Z');
 INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (2, 'sess_fixture1', '{"role":"assistant"}', 1, '2026-09-30T10:00:02Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (5, '2', 'sess_fixture1', '{"type":"reasoning","text":"fixture thinking：先读配置文件确认阈值"}', 3, '2026-09-30T10:00:06Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (2, '2', 'sess_fixture1', '{"type":"tool","callID":"call_fx","tool":"Read","state":{"status":"completed","input":{"file_path":"D:\\\\fixture\\\\proj\\\\config.json"},"output":"config content"}}', 0, '2026-09-30T10:00:03Z');
 INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (3, '2', 'sess_fixture1', '{"type":"step-finish","reason":"tool-calls","cost":0.5,"tokens":{"total":1000,"input":900,"output":100,"reasoning":50,"cache":{"read":200,"write":30}}}', 1, '2026-09-30T10:00:04Z');
-INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (4, '2', 'sess_fixture1', '{"type":"step-finish","reason":"end-turn","cost":0.25,"tokens":{"total":500,"input":400,"output":100,"reasoning":10,"cache":{"read":100,"write":0}}}', 2, '2026-09-30T10:00:05Z');`);
+INSERT INTO part (id, message_id, session_id, data, sequence, time_created) VALUES (4, '2', 'sess_fixture1', '{"type":"step-finish","reason":"end-turn","cost":0.25,"tokens":{"total":500,"input":400,"output":100,"reasoning":10,"cache":{"read":100,"write":0}}}', 2, '2026-09-30T10:00:05Z');
+INSERT INTO model_usage (id, session_id, model_id, status, input_tokens, output_tokens, reasoning_tokens, cache_creation_input_tokens, cache_read_input_tokens, provider_total_tokens, computed_total_tokens) VALUES
+  ('mu1', 'sess_fixture1', 'GLM-Test', 'completed', 4000, 250, 50, 30, 1000, 4250, 4300),
+  ('mu2', 'sess_fixture1', 'GLM-Test', 'completed', 500, 50, 0, 0, 200, 550, 550);`);
   db.close();
 }
 write(
@@ -139,11 +144,12 @@ write('zcode/v2/setting.json', JSON.stringify({ theme: 'fixture' }));
 write('opencode/opencode.jsonc', JSON.stringify({ $schema: 'https://opencode.ai/config.json' }, null, 2));
 {
   // opencode 家族 schema：part/message 无 sequence 列（与 ZCode 的差异点）
+  // 用量来源（token.md）：session 表 token 列（tokens_input/output/reasoning/cache_read/cache_write + cost）
   const db = openDb('opencode-data/opencode.db');
-  db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created TEXT);
+  db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER);
 CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_created TEXT);
 CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, data TEXT, time_created TEXT);
-INSERT INTO session (id, title, directory, time_created) VALUES ('oc_sess1', '语义检索工具可用性测试', 'D:/fixture/proj', '2026-09-05T12:23:50.509Z');
+INSERT INTO session (id, title, directory, time_created, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write) VALUES ('oc_sess1', '语义检索工具可用性测试', 'D:/fixture/proj', '2026-09-05T12:23:50.509Z', 0.12, 13964, 36, 34, 4320, 10);
 INSERT INTO message (id, session_id, data, time_created) VALUES ('oc_msg1', 'oc_sess1', '{"role":"user"}', '2026-09-05T12:24:00.000Z');
 INSERT INTO part (id, message_id, session_id, data, time_created) VALUES ('oc_p1', 'oc_msg1', 'oc_sess1', '{"type":"text","text":"帮我测试 mcp server 的连接是否正常"}', '2026-09-05T12:24:00.000Z');
 INSERT INTO message (id, session_id, data, time_created) VALUES ('oc_msg2', 'oc_sess1', '{"role":"assistant"}', '2026-09-05T12:24:10.000Z');
@@ -207,7 +213,9 @@ write('workbuddy-home/sessions/heartbeat.json', JSON.stringify({ pid: 1, kind: '
 {
   const db = openDb('workbuddy-home/workbuddy.db');
   db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, custom_title TEXT, cwd TEXT, model TEXT, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER);
-INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessB}', '第二实例数据库标题', 'D:\\fixture\\other', 'fixture-model-home', 1789300000000, 1789300001000, NULL);`);
+CREATE TABLE session_usage (session_id TEXT PRIMARY KEY, used INTEGER, size INTEGER, updated_at INTEGER, credit_json TEXT);
+INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessB}', '第二实例数据库标题', 'D:\\fixture\\other', 'fixture-model-home', 1789300000000, 1789300001000, NULL);
+INSERT INTO session_usage (session_id, used, size, updated_at) VALUES ('${wbSessB}', 9999, 300000, 1789300001000);`);
   db.close();
 }
 write('workbuddy/settings.json', JSON.stringify({ theme: 'dark', sandbox: { extraAllowWrite: [] } }, null, 2));
@@ -271,11 +279,13 @@ write(
     .join('\n') + '\n',
 );
 
-// 会话索引库（sessions 表：权威标题/cwd/model；仅含会话 A）
+// 会话索引库（sessions 表：权威标题/cwd/model；仅含会话 A；session_usage 表：用量仅总量 used）
 {
   const db = openDb('workbuddy/workbuddy.db');
   db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, custom_title TEXT, cwd TEXT, model TEXT, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER);
-INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessA}', 'WorkBuddy 数据库标题', 'D:\\fixture\\proj', 'fixture-model', 1789211122934, 1789213894036, NULL);`);
+CREATE TABLE session_usage (session_id TEXT PRIMARY KEY, used INTEGER, size INTEGER, updated_at INTEGER, credit_json TEXT);
+INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at) VALUES ('${wbSessA}', 'WorkBuddy 数据库标题', 'D:\\fixture\\proj', 'fixture-model', 1789211122934, 1789213894036, NULL);
+INSERT INTO session_usage (session_id, used, size, updated_at) VALUES ('${wbSessA}', 43210, 300000, 1789213894036);`);
   db.close();
 }
 
@@ -353,7 +363,7 @@ INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at)
     started_at: '2026-10-06T16:32:02.663Z', exit_code: null, status: 'idle', interactive: true,
     provider: 'cline', model: 'anthropic/claude-sonnet-5',
     cwd: 'C:/fixture/demo', workspace_root: 'C:/fixture/demo',
-    prompt: '审查 fixture 会话解析', metadata: { title: '审查 fixture 会话解析', tokensIn: 1200, tokensOut: 340, totalCost: 0.02 },
+    prompt: '审查 fixture 会话解析', metadata: { title: '审查 fixture 会话解析', tokensIn: 1200, tokensOut: 340, cacheReads: 800, cacheWrites: 100, totalCost: 0.02 },
   }, null, 2));
   write('cline/data/sessions/' + sid + '/' + sid + '.messages.json', JSON.stringify({
     version: 1, sessionId: sid,
@@ -379,6 +389,39 @@ INSERT INTO sessions (id, title, cwd, model, created_at, updated_at, deleted_at)
   // 运行时噪音：不入库
   write('cline/data/db/sessions.db', 'not a real sqlite - fixture noise');
   write('cline/apps/kanban/sessions/session_1.jsonl', JSON.stringify({ ts: 1, stream: 'chat_done', chunk: '{}' }) + '\n');
+}
+
+// ---------- claude（v1.28：Claude Code 家目录 ~/.claude） ----------
+// 结构对应真机实测：projects/<slug>/<sid>.jsonl（会话，单文件含 ai-title 标题与 assistant.message.usage 用量）
+// + projects/<slug>/memory/*.md（项目记忆）+ skills/<name>/SKILL.md（用户技能）。
+// 关键：一条 API 助手消息拆成多行（相同 message.id、相同 usage）——固件故意放两条同 id 行，锁定按 id 去重。
+// settings.json（含 token）、history.jsonl、plugins/、subagents/ 侧链为不收项，固件故意放入验证不入库。
+{
+  const sid = 'aaaabbbb-1111-2222-3333-444455556666';
+  const common = { sessionId: sid, cwd: 'D:/fixture/claude-demo', version: '2.1.295', gitBranch: 'main' };
+  const dupUsage = {
+    input_tokens: 1000, output_tokens: 50, cache_creation_input_tokens: 200, cache_read_input_tokens: 300,
+    output_tokens_details: { thinking_tokens: 30 },
+  };
+  const lines = [
+    { ...common, type: 'user', uuid: 'u1', timestamp: '2026-10-08T09:00:00.000Z', message: { role: 'user', content: [{ type: 'text', text: '审查 claude 适配器 fixture 会话' }] } },
+    { ...common, type: 'assistant', uuid: 'a1', timestamp: '2026-10-08T09:00:01.000Z', message: { id: 'msg_dedupe_001', role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'thinking', thinking: '先读文件再下结论。' }], usage: dupUsage } },
+    { ...common, type: 'assistant', uuid: 'a2', timestamp: '2026-10-08T09:00:02.000Z', message: { id: 'msg_dedupe_001', role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: '读取解析器实现后确认口径一致。' }], usage: dupUsage } },
+    { ...common, type: 'assistant', uuid: 'a3', timestamp: '2026-10-08T09:00:03.000Z', message: { id: 'msg_dedupe_002', role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'D:/fixture/claude-demo/parse.ts' } }], usage: { input_tokens: 1200, output_tokens: 80 } } },
+    { ...common, type: 'user', uuid: 'u2', timestamp: '2026-10-08T09:00:04.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'export function parseFixture() {}' }] } },
+    { ...common, type: 'assistant', uuid: 'a4', timestamp: '2026-10-08T09:00:05.000Z', message: { id: 'msg_dedupe_003', role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: '适配器实现正确。' }], usage: { input_tokens: 1500, output_tokens: 120 } } },
+    { ...common, type: 'ai-title', aiTitle: '审查 claude 适配器 fixture 会话' },
+    { ...common, type: 'queue-operation', uuid: 'q1', timestamp: '2026-10-08T09:00:06.000Z' },
+    { ...common, type: 'file-history-snapshot', uuid: 's1', timestamp: '2026-10-08T09:00:07.000Z' },
+  ];
+  write('claude-home/projects/d--fixture-demo/' + sid + '.jsonl', lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  write('claude-home/projects/d--fixture-demo/memory/MEMORY.md', '# 项目记忆\n\nclaude fixture memory 内容。\n');
+  write('claude-home/skills/fixture-skill/SKILL.md', '---\nname: fixture-skill\ndescription: fixture skill for claude\n---\n\nclaude fixture skill body。\n');
+  // 不收项：侧链转录 / 配置（含 token）/ 提示历史 / 插件市场——验证均不入库
+  write('claude-home/projects/d--fixture-demo/' + sid + '/subagents/agent-abc.jsonl', JSON.stringify({ ...common, type: 'assistant', uuid: 'sa1', message: { id: 'msg_sub_1', role: 'assistant', content: [{ type: 'text', text: 'sidechain 不应入库' }], usage: { input_tokens: 9999, output_tokens: 9999 } } }) + '\n');
+  write('claude-home/settings.json', JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-ant-fixture000000000000000000000000' } }, null, 2));
+  write('claude-home/history.jsonl', JSON.stringify({ display: '审查 claude 适配器 fixture 会话', project: 'D:/fixture/claude-demo', sessionId: sid }) + '\n');
+  write('claude-home/plugins/market/m.json', JSON.stringify({ name: 'fixture-plugin' }, null, 2));
 }
 
 console.log(`fixtures 已生成: ${fixtures}`);

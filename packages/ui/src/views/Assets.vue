@@ -11,6 +11,7 @@ import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import clineLogo from '../assets/logos/cline.png';
+import claudeLogo from '../assets/logos/claude.svg';
 import agentsLogo from '../assets/logos/agents.svg';
 import walleMark from '../assets/walle-mark.svg';
 
@@ -25,8 +26,8 @@ const kindLabel: Record<string, string> = {
   config: '配置', memory: '记忆', skill: 'Skill', knowledge: '知识', mcp: 'MCP', rule: '规则',
   agent: '子代理', plugin: '插件', secret: '凭证', other: '其他',
 };
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: '知识库', cline: 'Cline' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark, cline: clineLogo };
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', walle: '知识库', cline: 'Cline', claude: 'Claude Code' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, walle: walleMark, cline: clineLogo, claude: claudeLogo };
 
 /** 项目级资产的 path 是绝对路径（v1.13 项目记忆采集，如 D:/proj/.workbuddy/memory/x.md）；记忆资产据此区分根/项目作用域 */
 function isProjectAsset(a: Asset): boolean {
@@ -56,7 +57,7 @@ const EXCLUDED_KINDS = new Set(['session', 'prompt']);
 /** ZCode 模型 I/O 遥测也属会话数据（kind=other），一并移交会话页 */
 const isSessionAsset = (a: Asset) => EXCLUDED_KINDS.has(a.kind) || a.path.includes('model-io-');
 
-const TOOLS = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline', 'agents', 'walle'];
+const TOOLS = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline', 'claude', 'agents', 'walle'];
 /** 资产类型的固定展示顺序（只渲染实际存在的类型） */
 const KIND_ORDER = ['skill', 'knowledge', 'config', 'memory', 'rule', 'secret', 'mcp', 'agent', 'plugin', 'other'];
 const sortOptions = [

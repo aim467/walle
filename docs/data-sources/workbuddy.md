@@ -57,13 +57,18 @@
 
 ## 3. 关键格式：workbuddy.db
 
-`~/.workbuddy.db`（SQLite）主要表：`sessions`（16 行）、`session_usage`（14）、`workspaces`（1）、
-`automations` / `automation_runs` / `buddy_snapshots`（本机 0 行）、`__workbuddy_drizzle_migrations`（15）。
+`workbuddy.db`（SQLite，国际版 `~/.workbuddy-ai/workbuddy.db` / 国内版 `~/.workbuddy/workbuddy.db`）主要表：
+`sessions`、`session_usage`、`workspaces`、`automations` / `automation_runs` / `buddy_snapshots`、
+`__workbuddy_drizzle_migrations`。
 
 `sessions` 表关键列：`id`（= 会话 jsonl 文件名）、`title`、`custom_title`、`cwd`、`model`、`created_at`、
 `updated_at`、`deleted_at`。适配器将其解析为 **noDocs 会话元数据**，由索引器按 `subId`（会话 id）
 合并到 `projects/<slug>/<会话id>.jsonl` 会话资产上——标题优先 `custom_title`，回退 `title`；
 当 DB 无记录时回退到 JSONL 的 `ai-title`（再回退到首条用户提问）。
+
+**用量来源（token 统计）**：`session_usage` 表——`session_id` + `used`（**只有总量，没有输入/输出明细**）。
+适配器仅填 `total = used`，其余字段（input/output/…）一律为空；该表**无成本列 → cost 为空**。
+> `size` 列是上下文窗口上限（如 300000），非用量，不采集。
 
 ## 4. 读取方式与坑
 

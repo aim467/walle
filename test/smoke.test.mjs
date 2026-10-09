@@ -24,6 +24,8 @@ process.env.WALLE_WORKBUDDY_CN = path.join(fixtures, 'workbuddy-home');
 process.env.WALLE_KNOWLEDGE = path.join(fixtures, 'knowledge');
 // cline 根重定向到固件，绝不读取真机 ~/.cline
 process.env.WALLE_CLINE = path.join(fixtures, 'cline');
+// claude 根重定向到固件，绝不读取真机 ~/.claude
+process.env.WALLE_CLAUDE = path.join(fixtures, 'claude-home');
 ensureWalleHome();
 const store = new WalleStore(path.join(process.env.WALLE_HOME, 'walle.db'));
 const cas = new ContentStore(path.join(process.env.WALLE_HOME, 'objects'));
@@ -36,6 +38,7 @@ const roots = {
   workbuddy: path.join(fixtures, 'workbuddy'),
   agents: path.join(fixtures, 'agents-store'),
   cline: path.join(fixtures, 'cline'),
+  claude: path.join(fixtures, 'claude-home'),
 };
 // 项目级探测默认禁用（线索来自 session_meta.project_path，真机索引后才启用）；
 // 需要项目级采集的测试显式传入固件项目目录，其余测试保持完全隔离。
@@ -335,6 +338,8 @@ test('cline 会话：messages 正文 + meta 标题/用量合并 + 运行时噪�
   assert.ok(c.assetPath.includes('.messages.json'), `会话应挂到 messages 资产，实际 ${c.assetPath}`);
   assert.equal(c.projectPath, 'C:/fixture/demo', '项目路径来自 meta cwd');
   assert.ok(c.usage && c.usage.input === 1200 && c.usage.output === 340 && c.usage.total === 1540, '用量来自 meta tokensIn/tokensOut');
+  assert.equal(c.usage.cacheRead, 800, '缓存读来自 meta cacheReads');
+  assert.equal(c.usage.cacheWrite, 100, '缓存写来自 meta cacheWrites');
   // 孤儿 meta：无 messages 正文的会话仍出现在清单（挂回元数据资产本身）
   const orphan = rows.find((s) => s.tool === 'cline' && s.subId === '1790000000000_orphan');
   assert.ok(orphan, '孤儿 meta 会话应保留在清单');
@@ -361,6 +366,55 @@ test('cline 会话：messages 正文 + meta 标题/用量合并 + 运行时噪�
   assert.ok(secret && secret.sensitive === 1, 'secrets.json 应标记敏感');
   const gs = all.find((a) => a.path === 'data/globalState.json');
   assert.ok(gs && gs.kind === 'config', 'globalState.json 应为 config');
+});
+
+test('claude 会话：JSONL 正文 + ai-title 标题 + message.id 去重用量 + 侧链/配置不入库', () => {
+  const sid = 'aaaabbbb-1111-2222-3333-444455556666';
+  const rows = store.listSessions({ limit: 300 });
+  const c = rows.find((s) => s.tool === 'claude' && s.subId === sid);
+  assert.ok(c, 'claude 会话应入库');
+  assert.equal(c.title, '审查 claude 适配器 fixture 会话', '标题来自 ai-title 行');
+  assert.ok(c.assetPath.endsWith('.jsonl'), `会话应挂到 jsonl 资产，实际 ${c.assetPath}`);
+  assert.equal(c.projectPath, 'D:/fixture/claude-demo', '项目路径来自 cwd');
+  assert.equal(c.model, 'claude-sonnet-4-5', '模型来自 assistant.message.model');
+  // 用量必须按 message.id 去重：两条同 id 行（各 input 1000）只算一次
+  assert.ok(c.usage, '应有用量');
+  assert.equal(c.usage.input, 3700, `input 应按 message.id 去重（非 4700），实际 ${c.usage.input}`);
+  assert.equal(c.usage.output, 250, 'output 汇总');
+  assert.equal(c.usage.cacheRead, 300, '缓存读来自 cache_read_input_tokens');
+  assert.equal(c.usage.cacheWrite, 200, '缓存写来自 cache_creation_input_tokens');
+  assert.equal(c.usage.reasoning, 30, '思考 token 来自 output_tokens_details.thinking_tokens');
+  assert.equal(c.usage.total, 3950, 'total = input + output');
+  assert.equal(c.usage.cost, null, 'Claude JSONL 无成本字段');
+
+  // 正文解析：user / thinking / tool_use / tool_result / session_file
+  const cl = adapters.find((a) => a.id === 'claude');
+  const asset = store.listAssets({ tool: 'claude', kind: 'session', limit: 20 }).find((a) => a.path.endsWith('.jsonl'));
+  assert.ok(asset, 'jsonl 文件应为 session 资产');
+  const result = cl.parse(cas.pathFor(asset.contentHash), { kind: 'session', path: asset.path, tool: 'claude' }, 'read');
+  assert.ok(result, 'claude 会话应可解析');
+  assert.ok(result.docs.some((d) => d.role === 'user' && d.text.includes('审查 claude 适配器 fixture 会话')), 'user 文本应入文档');
+  assert.ok(result.docs.some((d) => d.role === 'thinking' && d.text.includes('先读文件再下结论')), 'thinking 应入文档');
+  assert.ok(result.docs.some((d) => d.role === 'tool' && d.text.includes('[调用 Read]')), 'tool_use 应转 tool 文档');
+  assert.ok(result.docs.some((d) => d.role === 'tool' && d.text.includes('[结果 Read]') && d.text.includes('parseFixture')), 'tool_result 应转 tool 文档（名称由 tool_use_id 反查）');
+  assert.ok(result.docs.some((d) => d.role === 'assistant' && d.text.includes('适配器实现正确')), '助手回复应保留');
+  assert.ok(result.docs.some((d) => d.docType === 'session_file' && d.text.includes('parse.ts')), 'tool_use input 里的路径应产 session_file');
+  assert.ok(!result.docs.some((d) => d.text.includes('queue-operation') || d.text.includes('file-history-snapshot')), '噪声事件类型不应产文档');
+
+  // 记忆（根内相对路径 → 归「根记忆」作用域）与技能
+  const mems = store.listAssets({ tool: 'claude', kind: 'memory', limit: 20 });
+  assert.ok(mems.some((a) => a.name === 'MEMORY' && a.path === 'projects/d--fixture-demo/memory/MEMORY.md'), '项目记忆应入库');
+  const mem = store.memoriesOverview().memories.find((m) => m.tool === 'claude' && m.name === 'MEMORY');
+  assert.ok(mem && mem.scope === 'global', 'claude 记忆路径为根内相对，应归根记忆作用域（已知口径）');
+  const skills = store.listAssets({ tool: 'claude', kind: 'skill', limit: 20 });
+  assert.ok(skills.some((a) => a.name === 'fixture-skill' && a.path === 'skills/fixture-skill/SKILL.md'), '用户技能应入库');
+
+  // 不收项：侧链转录 / settings.json / history.jsonl / 插件市场
+  const all = store.listAssets({ tool: 'claude', limit: 200 });
+  assert.ok(!all.some((a) => a.path.includes('subagents')), 'subagents 侧链转录不入库');
+  assert.ok(!all.some((a) => a.path === 'settings.json'), 'settings.json（含 token）不入库');
+  assert.ok(!all.some((a) => a.path === 'history.jsonl'), 'history.jsonl 不入库');
+  assert.ok(!all.some((a) => a.path.includes('plugins/')), 'plugins 市场不入库');
 });
 
 test('opencode skills：配置根 skills/<name>/SKILL.md 入库，附属文件不收', () => {
@@ -411,42 +465,63 @@ test('工具调用与文件文档：Codex function_call / ZCode tool part / open
   assert.ok(orr.docs.some((d) => d.docType === 'session_file' && d.text === 'D:/fixture/proj/src/style.css'), 'opencode patch files 应入 session_file');
 });
 
-test('token 用量：Codex 取累计最大值 / ZCode step-finish 累加', () => {
+test('token 用量：按工具权威表取值（Codex 未列入→空 / ZCode model_usage / opencode session）', () => {
+  // Codex 不在 token.md 文档中 → 用量恒为空，即便 rollout 内含 token_count 事件
   const cx = adapters.find((a) => a.id === 'codex');
   const cr = cx.parse(
     path.join(fixtures, 'codex/sessions/2026/07/08/rollout-2026-07-08T13-57-45-019f404d-bbb3-7eb0-a91e-ffed59995d84.jsonl'),
     { kind: 'session', path: 'sessions/rollout.jsonl', tool: 'codex' }, 'index',
   );
-  assert.ok(cr.sessions[0]?.usage, 'codex 会话应有用量');
-  assert.equal(cr.sessions[0].usage.total, 390, '应取 total_token_usage 的会话累计最大值');
-  assert.equal(cr.sessions[0].usage.input, 300);
-  assert.equal(cr.sessions[0].usage.output, 90);
-  assert.equal(cr.sessions[0].usage.cacheRead, 60);
+  assert.equal(cr.sessions[0]?.usage, null, 'Codex 未在文档中，用量应为空');
 
+  // ZCode：model_usage 表按会话聚合（step-finish part 不再参与）
   const zc = adapters.find((a) => a.id === 'zcode');
   const zr = zc.parse(path.join(fixtures, 'zcode/cli/db/db.sqlite'), { kind: 'session', path: 'cli/db/db.sqlite', tool: 'zcode' }, 'read');
   const zs = zr.sessions.find((s) => s.subId === 'sess_fixture1');
   assert.ok(zs?.usage, 'zcode 会话应有用量');
-  assert.equal(zs.usage.total, 1500, '两步 step-finish 应累加');
-  assert.equal(zs.usage.input, 1300);
-  assert.equal(zs.usage.output, 200);
-  assert.equal(zs.usage.cacheRead, 300);
-  assert.equal(zs.usage.cost, 0.75);
+  assert.equal(zs.usage.total, 4850, 'total 取 model_usage computed_total_tokens 聚合（非 step-finish）');
+  assert.equal(zs.usage.input, 4500, 'input_tokens 聚合');
+  assert.equal(zs.usage.output, 300);
+  assert.equal(zs.usage.reasoning, 50);
+  assert.equal(zs.usage.cacheRead, 1200, 'cache_read_input_tokens → cacheRead');
+  assert.equal(zs.usage.cacheWrite, 30, 'cache_creation_input_tokens → cacheWrite');
+  assert.equal(zs.usage.cost, null, 'model_usage 无成本列 → cost 为空');
+
+  // opencode：session 表 token 列
+  const oc = adapters.find((a) => a.id === 'opencode');
+  const orr = oc.parse(path.join(fixtures, 'opencode-data/opencode.db'), { kind: 'session', path: 'data:opencode.db', tool: 'opencode' }, 'read');
+  const os = orr.sessions.find((s) => s.subId === 'oc_sess1');
+  assert.ok(os?.usage, 'opencode 会话应有用量');
+  assert.equal(os.usage.input, 13964, 'tokens_input');
+  assert.equal(os.usage.output, 36, 'tokens_output');
+  assert.equal(os.usage.reasoning, 34, 'tokens_reasoning');
+  assert.equal(os.usage.cacheRead, 4320, 'tokens_cache_read');
+  assert.equal(os.usage.cacheWrite, 10, 'tokens_cache_write');
+  assert.equal(os.usage.total, 14034, 'total = input+output+reasoning');
+  assert.equal(os.usage.cost, 0.12, 'session.cost');
 });
 
 test('token 用量：入库与按工具聚合', () => {
   const rows = store.listSessions({ limit: 200 });
   const zc = rows.find((s) => s.tool === 'zcode' && s.subId === 'sess_fixture1');
   assert.ok(zc?.usage, '索引后 zcode 会话清单应带用量');
-  assert.equal(zc.usage.total, 1500);
-  const codexRow = rows.find((s) => s.tool === 'codex' && s.usage);
-  assert.ok(codexRow, 'codex 会话清单应带用量');
+  assert.equal(zc.usage.total, 4850);
+
+  // WorkBuddy：session_usage 表只有总量（used）→ 仅 total 有值
+  const wb = rows.find((s) => s.tool === 'workbuddy' && s.subId === '11111111-1111-4111-8111-111111111111');
+  assert.ok(wb?.usage && wb.usage.total === 43210, 'workbuddy 用量来自 session_usage.used');
+  assert.equal(wb.usage.input, null, 'workbuddy 无输入/输出明细，应为 null');
+
+  // 文档未列入的工具（Codex）不应带用量
+  assert.ok(!rows.some((s) => s.tool === 'codex' && s.usage), 'codex 会话不应带用量');
 
   const byTool = Object.fromEntries(store.usageByTool().map((u) => [u.tool, u]));
   assert.ok(byTool.zcode, 'zcode 应出现在用量聚合');
-  assert.equal(byTool.zcode.total, 1500);
+  assert.equal(byTool.zcode.total, 4850);
   assert.equal(byTool.zcode.withUsage, 1);
-  assert.ok((byTool.codex?.total ?? 0) > 0, 'codex 应出现在用量聚合');
+  assert.equal(byTool.workbuddy.total, 43210, 'workbuddy 用量进入聚合');
+  assert.equal(byTool.codex.total, null, 'codex 无用量');
+  assert.equal(byTool.codex.withUsage, 0, 'codex withUsage 为 0');
 });
 
 test('token 用量：按天与按项目聚合', () => {
@@ -454,13 +529,13 @@ test('token 用量：按天与按项目聚合', () => {
   const byDay = store.usageByDay(3650);
   const day = byDay.find((d) => d.day === '2026-09-30');
   assert.ok(day, 'zcode fixture 会话应计入按天聚合');
-  assert.equal(day.total, 1500, '该日用量应等于 zcode fixture 会话总量');
+  assert.equal(day.total, 4850, '该日用量应等于 zcode fixture 会话总量');
 
   const byProject = store.usageByProject(10);
-  const proj = byProject.find((p) => p.project.includes('fixture') && p.total === 1500);
+  const proj = byProject.find((p) => p.project.includes('zproj') && p.total === 4850);
   assert.ok(proj, '按项目聚合应含 zcode fixture 项目');
   assert.equal(proj.withUsage, 1);
-  assert.ok(byProject.length >= 2, 'codex（cwd）与 zcode（directory）应各成一组');
+  assert.ok(byProject.length >= 3, 'zcode/workbuddy/opencode 项目应各成一组');
   assert.ok((byProject[0].total ?? 0) >= (byProject[byProject.length - 1].total ?? 0), '按用量降序');
 });
 

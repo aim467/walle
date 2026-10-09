@@ -28,6 +28,11 @@ opencode 有自己的技能目录：配置根 `~/.config/opencode/skills/<name>/
 
 本机实测：session 3、message 34、part 115。另有 `account/credential` 表（本机 0 行，若启用需按 secret 处理）。
 
+**用量来源（token 统计）**：与 ZCode 不同，opencode 的用量**直接落在 `session` 表**（`tokens_input` / `tokens_output` /
+`tokens_reasoning` / `tokens_cache_read` / `tokens_cache_write` / `cost`），一个会话一行、即该会话的累计值。
+适配器据此填充：input/output/reasoning/cacheRead/cacheWrite/cost 如实映射，`total = input+output+reasoning`（缓存不计入）。
+> 适配器按 session 表是否含 token 列自动区分 opencode 与 ZCode 同族库：有列走 session 表，无列走 ZCode 的 model_usage 表。
+
 ## 3. 读取方式与坑
 
 - opencode.db 带 -shm/-wal 运行中，`readOnly: true` 打开实测成功；CAS 副本不含 WAL，未 checkpoint 的最新消息会延迟到下次扫描（可接受）。

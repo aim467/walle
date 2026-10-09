@@ -22,6 +22,7 @@ import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import agentsLogo from '../assets/logos/agents.svg';
 import clineLogo from '../assets/logos/cline.png';
+import claudeLogo from '../assets/logos/claude.svg';
 
 interface SkillEntry { tool: string; assetId: number; path: string; abs: string; project: boolean; linked: boolean; size: number; mtime: string }
 interface SkillGroup { key: string; name: string; description: string | null; storePath: string | null; entries: SkillEntry[] }
@@ -36,12 +37,13 @@ const TOOLS: ToolDef[] = [
   { id: 'workbuddy-cn', name: 'WorkBuddy 国内版', logo: workbuddyLogo },
   { id: 'opencode', name: 'OpenCode', logo: opencodeLogo },
   { id: 'cline', name: 'Cline', logo: clineLogo },
+  { id: 'claude', name: 'Claude Code', logo: claudeLogo },
 ];
 const toolDef = (t: string) => TOOLS.find((x) => x.id === t);
 const toolName = (t: string) => toolDef(t)?.name ?? t;
 const toolLogo = (t: string) => toolDef(t)?.logo;
 /** 接入工具盒子只展示 AI 工具（agents 是存储库本身，不算接入方） */
-const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline'];
+const LINK_TOOLS = ['codex', 'zcode', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'cline', 'claude'];
 
 const skills = ref<SkillGroup[]>([]);
 const loading = ref(false);
@@ -258,6 +260,7 @@ const TARGET_DEFS = [
   { tool: 'opencode', label: 'OpenCode', hint: '~/.config/opencode/skills（另原生探测 ~/.agents/skills）' },
   { tool: 'workbuddy', label: 'WorkBuddy 国际版', hint: '~/.workbuddy-ai/skills' },
   { tool: 'workbuddy-cn', label: 'WorkBuddy 国内版', hint: '~/.workbuddy/skills' },
+  { tool: 'claude', label: 'Claude Code', hint: '~/.claude/skills' },
 ];
 const targetState = ref<Record<string, { on: boolean; mode: 'link' | 'copy' }>>(
   Object.fromEntries(TARGET_DEFS.map((t) => [t.tool, { on: t.tool !== 'codex', mode: 'link' as const }])),

@@ -10,7 +10,7 @@
 
 **纯本地 · 无遥测 · 只读优先 · 内容寻址去重 · 零原生依赖**
 
-当前支持 **8 个数据源**：ZCode、Codex CLI、Cursor、opencode、WorkBuddy（国际版 / 国内版）、agents 共享技能库、Cline，外加 Walle 自有的知识库。
+当前支持 **9 个数据源**：ZCode、Codex CLI、Cursor、opencode、WorkBuddy（国际版 / 国内版）、agents 共享技能库、Cline、Claude Code，外加 Walle 自有的知识库。
 
 > 名字来自 WALL-E —— 默默收集、整理、归档散落一地的宝藏。
 
@@ -70,6 +70,7 @@ Walle 的思路是：**不侵入、不替代任何 AI 工具**，在旁边做一
 | **WorkBuddy 国内版** | `~/.workbuddy` | 结构与国际版同构，独立账户分开管理 | 同上 |
 | **agents 共享技能库** | `~/.agents` | `skills/<name>/SKILL.md`（skills CLI 共享本体）、`.skill-lock.json` | Markdown + JSON |
 | **Cline** | `~/.cline` | data/sessions（会话正文 + 元数据）、globalState.json、secrets.json（⚠️） | JSON |
+| **Claude Code** | `~/.claude` | projects/<slug>/*.jsonl（会话，含标题与 token 用量）、projects/*/memory/（项目记忆）、skills/（用户技能）；settings.json（含 token ⚠️）与 plugins/ 不收 | JSONL + Markdown |
 | **Walle 知识库**（自管） | `~/.walle/knowledge` | 会话提炼产出的知识卡片 / 纪要（Markdown） | Markdown |
 
 此外还自动采集**项目级记忆与技能**：`<项目>/.workbuddy*/memory/`、`<项目>/.agents/skills/`，以会话的 `project_path` 作线索发现，无需全盘扫描。

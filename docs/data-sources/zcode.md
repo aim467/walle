@@ -38,10 +38,16 @@
 | `message` | 61 | id, session_id, data(JSON), sequence, time_created | 消息（内容在 data 列 JSON） |
 | `part` | 229 | message_id, session_id, data(JSON), sequence | 消息分片（工具调用等结构化部分） |
 | `input_history` | 6 | session_id, kind('prompt'), text, attachments | 用户输入历史（对应 Codex 的 history.jsonl） |
-| `todo` / `model_usage` / `turn_usage` / `tool_usage` | — | — | 任务清单与用量统计（P2/P5 检索与统计的数据源） |
+| `todo` / `model_usage` / `turn_usage` / `tool_usage` | — | — | 任务清单与用量统计（`model_usage` 是**会话 token 用量的权威来源**，见下） |
 | `workflow_*` / `session_task_link` 等 | 0 | — | 工作流引擎表，本机未使用 |
 
 **P2 解析路径**：session → message（按 sequence）→ part（按 message_id），data 列 JSON 内含角色与内容。
+
+**用量来源（token 统计）**：`model_usage` 表——每次模型调用一行，`session_id` 关联会话。适配器按 `session_id` 聚合：
+`input_tokens`→input、`output_tokens`→output、`reasoning_tokens`→reasoning、
+`cache_creation_input_tokens`→cacheWrite、`cache_read_input_tokens`→cacheRead、
+`computed_total_tokens`→total（回退 `provider_total_tokens`）；该表**无成本列 → cost 为空**。
+> part 表里的 `step-finish` 分片也含 tokens/cost，但**不作为用量来源**（改用 model_usage，口径以表为准）。
 
 ### 2.2 rollout model-io JSONL
 

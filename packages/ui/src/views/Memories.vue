@@ -10,6 +10,7 @@ import cursorLogo from '../assets/logos/cursor.png';
 import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
+import claudeLogo from '../assets/logos/claude.svg';
 import agentsLogo from '../assets/logos/agents.svg';
 
 /** 统一记忆视图（P5.2）：跨工具记忆聚合——根记忆（工具 home 根）与项目记忆（项目点目录下的 memory 文件）+ 相似检测 */
@@ -21,9 +22,9 @@ interface MemoryEntry {
 }
 interface SimilarGroup { kind: 'name' | 'content'; label: string; assetIds: number[] }
 
-const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库' };
-const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo };
-const TOOL_ORDER = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'agents'];
+const toolLabel: Record<string, string> = { codex: 'Codex CLI', zcode: 'ZCode', cursor: 'Cursor', opencode: 'OpenCode', workbuddy: 'WorkBuddy 国际版', 'workbuddy-cn': 'WorkBuddy 国内版', agents: 'Skills 共享库', claude: 'Claude Code' };
+const toolLogos: Record<string, string> = { zcode: zcodeLogo, codex: openaiLogo, cursor: cursorLogo, opencode: opencodeLogo, workbuddy: workbuddyLogo, 'workbuddy-cn': workbuddyLogo, agents: agentsLogo, claude: claudeLogo };
+const TOOL_ORDER = ['zcode', 'codex', 'cursor', 'opencode', 'workbuddy', 'workbuddy-cn', 'agents', 'claude'];
 
 const memories = ref<MemoryEntry[]>([]);
 const similar = ref<SimilarGroup[]>([]);

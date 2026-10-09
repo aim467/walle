@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue';
+import { fmtTok, fmtTokExact } from '../lib/utils';
 import UiButton from '../components/ui/Button.vue';
 import UiInput from '../components/ui/Input.vue';
 import UiBadge from '../components/ui/Badge.vue';
@@ -18,6 +19,7 @@ import opencodeLogo from '../assets/logos/opencode.png';
 import zcodeLogo from '../assets/logos/zcode.png';
 import workbuddyLogo from '../assets/logos/workbuddy.svg';
 import clineLogo from '../assets/logos/cline.png';
+import claudeLogo from '../assets/logos/claude.svg';
 
 interface Hit {
   assetId: number; subId: string; tool: string; kind: string; role: string | null;
@@ -55,6 +57,7 @@ const TOOLS: ToolDef[] = [
   { id: 'workbuddy', name: 'WorkBuddy 国际版', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
   { id: 'workbuddy-cn', name: 'WorkBuddy 国内版', logo: workbuddyLogo, letter: 'W', color: 'linear-gradient(135deg,#34c759,#0a84ff)' },
   { id: 'cline', name: 'Cline', logo: clineLogo, letter: 'C', color: '#1e1e2e' },
+  { id: 'claude', name: 'Claude Code', logo: claudeLogo, letter: 'C', color: '#D97757' },
 ];
 
 const activeTool = ref<string | null>(null); // null = 全部工具
@@ -447,12 +450,6 @@ async function saveDistill() {
 function fmtDate(iso: string | null): string { return iso ? iso.slice(0, 10) : ''; }
 function fmtHM(iso: string | null): string { return iso ? iso.slice(11, 16) : ''; }
 function fmtFull(iso: string | null): string { return iso ? iso.replace('T', ' ').slice(0, 19) : '-'; }
-function fmtTok(n: number | null): string {
-  if (n == null) return '-';
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + ' M';
-  if (n >= 1e4) return (n / 1e3).toFixed(1) + ' k';
-  return n.toLocaleString('en-US');
-}
 
 // 列表拖拽调宽
 const listW = ref(380);
@@ -535,7 +532,7 @@ onMounted(async () => {
               <span class="dim small">{{ fmtHM(h.time) }}</span>
             </div>
             <div class="s-title">{{ h.title }}</div>
-            <div class="dim small">{{ h.model ?? '未知模型' }}<template v-if="h.messageCount"> · {{ h.messageCount }} 条消息</template><template v-if="h.tokensTotal"> · {{ fmtTok(h.tokensTotal) }} tok</template></div>
+            <div class="dim small">{{ h.model ?? '未知模型' }}<template v-if="h.messageCount"> · {{ h.messageCount }} 条消息</template><template v-if="h.tokensTotal"> · <span :title="fmtTokExact(h.tokensTotal) + ' tokens'">{{ fmtTok(h.tokensTotal) }} tok</span></template></div>
             <div class="dim small s-path">{{ h.projectPath ?? h.path }}</div>
           </div>
           <UiEmpty :description="listQ ? '没有匹配的会话' : '选择上方工具查看会话'" size="small" style="padding:36px 0" />

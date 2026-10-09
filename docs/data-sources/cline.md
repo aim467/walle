@@ -45,10 +45,11 @@
 | 资产 | kind | 说明 |
 |---|---|---|
 | `data/sessions/<id>/<id>.messages.json` | session | 正文；subId=session_id；单会话单文件 |
-| `data/sessions/<id>/<id>.json` | other（`<id>-meta`） | noDocs 权威元数据：标题（metadata.title，回退 prompt）/ started_at / model / cwd→project_path / 用量（tokensIn/tokensOut/totalCost）。索引器按 path fragment 合并到正文资产 |
+| `data/sessions/<id>/<id>.json` | other（`<id>-meta`） | noDocs 权威元数据：标题（metadata.title，回退 prompt）/ started_at / model / cwd→project_path / 用量（metadata.tokensIn/tokensOut/cacheReads/cacheWrites/totalCost）。索引器按 path fragment 合并到正文资产 |
 | `data/globalState.json` | config | 工具配置状态 |
 | `data/secrets.json` | secret | sensitive=1，永不入全文索引 |
 
+- **用量来源（token 统计）**：`<id>.json` 的 `metadata`——`tokensIn`→input、`tokensOut`→output、`cacheReads`→cacheRead、`cacheWrites`→cacheWrite、`totalCost`→cost，`total = tokensIn + tokensOut`。旧版会话（无这些字段）如实为空。
 - 孤儿元数据（只有 `<id>.json` 无 messages，如会话未产生对话）仍入库：noDocs 合并按 path fragment 找不到会话文件资产时挂回元数据资产本身（对齐 Cursor conversation-search 回退语义），如实出现在会话清单。
 - **不收**：`data/db/*.db`（运行时库，sessions.db 与 sessions/ 目录一一对应、无增量价值；session-search.db 的 FTS 索引自建）、`apps/*/sessions/*.jsonl`（流式 chunk 冗余日志）、cache/checkpoint-scratch/locks/logs。
 

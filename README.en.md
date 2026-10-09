@@ -10,7 +10,7 @@
 
 **Local-only · No telemetry · Read-only by default · Content-addressed dedup · Zero native dependencies**
 
-Walle currently supports **8 data sources**: ZCode, Codex CLI, Cursor, opencode, WorkBuddy (International / China), the `~/.agents` shared skill library, and Cline — plus Walle's own knowledge base.
+Walle currently supports **9 data sources**: ZCode, Codex CLI, Cursor, opencode, WorkBuddy (International / China), the `~/.agents` shared skill library, Cline, and Claude Code — plus Walle's own knowledge base.
 
 > The name comes from WALL-E — quietly collecting, tidying up, and archiving treasures scattered all over the place.
 
@@ -70,6 +70,7 @@ Walle's approach: **never intrude on or replace any AI tool**. Instead, sit besi
 | **WorkBuddy (China)** | `~/.workbuddy` | same structure as International; managed separately as a distinct account | same as above |
 | **agents shared skill library** | `~/.agents` | `skills/<name>/SKILL.md` (skills CLI shared body), `.skill-lock.json` | Markdown + JSON |
 | **Cline** | `~/.cline` | data/sessions (session bodies + metadata), globalState.json, secrets.json (⚠️) | JSON |
+| **Claude Code** | `~/.claude` | projects/<slug>/*.jsonl (sessions, with title and token usage), projects/*/memory/ (project memory), skills/ (user skills); settings.json (⚠️ tokens) and plugins/ excluded | JSONL + Markdown |
 | **Walle knowledge base** (self-managed) | `~/.walle/knowledge` | knowledge cards / summaries distilled from sessions (Markdown) | Markdown |
 
 Walle also automatically collects **project-level memories and skills**: `<project>/.workbuddy*/memory/` and `<project>/.agents/skills/`, discovered via each session's `project_path` without scanning the whole disk.
